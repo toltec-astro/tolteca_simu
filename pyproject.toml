@@ -12,7 +12,7 @@ description = "TolTEC observation simulator."
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 classifiers = [
   "Development Status :: 1 - Planning",
   "Intended Audience :: Science/Research",
@@ -21,6 +21,7 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering",
   "Typing :: Typed",
@@ -28,6 +29,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
   "typer",
+  "toast ==3.0.6",
 ]
 
 [project.urls]
@@ -73,6 +75,9 @@ cache-keys = [
   { file = "pyproject.toml" },
   { git = { commit = true, tags = true } },
 ]
+# Install TOAST only from its PyPI wheels (macOS arm64, Linux x86_64). A source
+# build without libaatm and CHOLMOD silently lacks the atmosphere simulation.
+no-build-package = ["toast"]
 
 
 [tool.pytest]
