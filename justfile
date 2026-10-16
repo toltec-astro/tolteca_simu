@@ -1,25 +1,28 @@
+# tolteca_simu depends on workspace packages that are not on PyPI, so its
+# tools run from the deployment location's environment. Load the location's
+# .envrc first; it sets UV_PROJECT_ENVIRONMENT.
+
 # Show the available recipes
 default:
     @just --list
 
-# Create or update the development environment and activate the commit hook
+# Activate the commit hook; the deployment location installs the package
 install:
-    uv sync
     git config core.hooksPath .githooks
 
 # Run every check: the pre-commit hooks on all files, the tests, the doc examples
 qa:
     uvx prek run --all-files --show-diff-on-failure
-    uv run pytest
+    "${UV_PROJECT_ENVIRONMENT:?Load the deployment location .envrc}"/bin/pytest
     just doc-test
 
 # Run the tests; extra arguments are passed to pytest
 test *ARGS:
-    uv run pytest {{ARGS}}
+    "${UV_PROJECT_ENVIRONMENT:?Load the deployment location .envrc}"/bin/pytest {{ARGS}}
 
 # Run the tests and report coverage, in the terminal and as HTML in htmlcov/
 coverage:
-    uv run pytest --cov --cov-report=term-missing --cov-report=html
+    "${UV_PROJECT_ENVIRONMENT:?Load the deployment location .envrc}"/bin/pytest --cov --cov-report=term-missing --cov-report=html
 
 # The generated API stubs are removed first: one left over from a renamed or
 # deleted object would fail the build. Every page is read again (-E): Sphinx
@@ -29,7 +32,7 @@ coverage:
 # Build the docs; any warning, including a broken reference, fails the build
 doc-build:
     rm -rf docs/api
-    uv run --group docs sphinx-build -W --keep-going -n -T -E -b html -d docs/_build/doctrees docs docs/_build/html
+    "${UV_PROJECT_ENVIRONMENT:?Load the deployment location .envrc}"/bin/sphinx-build -W --keep-going -n -T -E -b html -d docs/_build/doctrees docs docs/_build/html
 
 # Cross-project links are not needed to run examples, so intersphinx is off
 # and the run stays offline. Every page is read again (-E), as in doc-build:
@@ -38,11 +41,11 @@ doc-build:
 # Run the testcode examples in the docs
 doc-test:
     rm -rf docs/api
-    uv run --group docs sphinx-build -W --keep-going -T -E -b doctest -D disable_intersphinx=1 docs docs/_build/doctest
+    "${UV_PROJECT_ENVIRONMENT:?Load the deployment location .envrc}"/bin/sphinx-build -W --keep-going -T -E -b doctest -D disable_intersphinx=1 docs docs/_build/doctest
 
 # Serve the docs locally, rebuilding on change
 doc:
-    uv run --group docs --with sphinx-autobuild sphinx-autobuild --open-browser -n -T -b html -d docs/_build/doctrees docs docs/_build/html
+    "${UV_PROJECT_ENVIRONMENT:?Load the deployment location .envrc}"/bin/sphinx-autobuild --open-browser -n -T -b html -d docs/_build/doctrees docs docs/_build/html
 
 # Publish the built docs to GitHub Pages (the gh-pages branch of origin)
 doc-deploy: doc-build

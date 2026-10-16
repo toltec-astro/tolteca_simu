@@ -28,7 +28,17 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
+  "tollan",
+  "tolteca",
+  "astropy",
+  "astroplan",
+  "numpy",
+  "pydantic",
   "typer",
+  "dash>=4.4.1",
+  "dash-mantine-components",
+  "dash-component-template",
+  "plotly",
   "toast ==3.0.6",
 ]
 
@@ -187,4 +197,5 @@ exclude_files = [
 ignore = [
   "PY007",  # Task runner: just is not one the check recognises
   "GH100",  # No GitHub Actions workflows by default
+  "PC140",  # ty runs as a local hook against the deployment location environment
 ]

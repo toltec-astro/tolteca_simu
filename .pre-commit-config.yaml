@@ -44,10 +44,21 @@ repos:
       - id: ruff-format
         types_or: [python, pyi, jupyter, markdown, pyproject]
 
-  - repo: https://github.com/astral-sh/ty-pre-commit
-    rev: "v0.0.85"
+  # tolteca_simu depends on workspace packages that are not on PyPI, so ty
+  # checks against the deployment location's environment, not one resolved
+  # from this repository alone. Load the location's .envrc first.
+  - repo: local
     hooks:
       - id: ty
+        name: ty
+        entry:
+          bash -c 'v="${UV_PROJECT_ENVIRONMENT:?Load the deployment location
+          .envrc}"; "$v/bin/ty" check --python "$v"'
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+        always_run: true
+        require_serial: true
 
   - repo: https://github.com/codespell-project/codespell
     rev: "v2.4.3"
