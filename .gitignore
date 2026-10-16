@@ -190,8 +190,9 @@ Thumbs.db
 # Stub pages that automodapi generates during a docs build
 docs/api/
 
-# Local design notes
-design/
+# Local design notes; the specification is version controlled
+design/*
+!design/spec.md
 
 # pytest-benchmark results
 .benchmarks/
