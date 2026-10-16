@@ -1,0 +1,185 @@
+[build-system]
+requires = ["setuptools>=84.0", "setuptools_scm[toml]>=10.3"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "tolteca_simu"
+authors = [
+  { name = "Zhiyuan Ma", email = "zhiyuanma@umass.edu" },
+]
+description = "TolTEC observation simulator."
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+requires-python = ">=3.14"
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering",
+  "Typing :: Typed",
+]
+dynamic = ["version"]
+dependencies = [
+  "typer",
+]
+
+[project.urls]
+Homepage = "https://github.com/toltec-astro/tolteca_simu"
+"Bug Tracker" = "https://github.com/toltec-astro/tolteca_simu/issues"
+Discussions = "https://github.com/toltec-astro/tolteca_simu/discussions"
+Changelog = "https://github.com/toltec-astro/tolteca_simu/releases"
+Documentation = "https://toltec-astro.github.io/tolteca_simu/"
+
+[project.scripts]
+tolteca_simu = "tolteca_simu.cli:app"
+
+
+[dependency-groups]
+test = [
+  "pytest >=9.1",
+  "pytest-cov >=7.1",
+  "pytest-doctestplus",
+  "pytest-benchmark",
+]
+dev = [
+  { include-group = "test" },
+  "pandas-stubs",  # pandas has no type information of its own
+]
+docs = [
+  "sphinx>=9.1",
+  "myst_parser>=5.1",
+  "sphinx_copybutton",
+  "sphinx-astropy[confv2]",
+  "sphinx_book_theme",
+  "autodoc_pydantic",
+  "sphinxcontrib-typer",
+]
+
+
+[tool.setuptools_scm]
+write_to = "src/tolteca_simu/_version.py"
+
+[tool.uv]
+# Rebuild the project, and so read its version from git again, when a commit
+# or a tag is added. Without this the installed version keeps its first value.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { git = { commit = true, tags = true } },
+]
+
+
+[tool.pytest]
+minversion = "9.1"
+addopts = ["-ra", "--showlocals", "--doctest-rst"]
+strict = true
+filterwarnings = [
+  "error",
+]
+log_level = "INFO"
+# pytest-doctestplus runs the `>>>` examples in docstrings and .rst pages.
+# Markdown guides use testcode blocks instead; see `just doc-test`.
+doctest_plus = "enabled"
+testpaths = [
+  "tests",
+  "src/tolteca_simu",
+  "docs",
+]
+
+
+[tool.coverage]
+run.source = ["tolteca_simu"]
+report.exclude_also = [
+  '\.\.\.',
+  'if typing.TYPE_CHECKING:',
+]
+
+[tool.ty]
+src.include = ["src", "tests"]
+terminal.error-on-warning = true
+
+
+[tool.ruff]
+show-fixes = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "COM812",  # Trailing commas are the formatter's job
+  "CPY001",  # No copyright notice in every file
+]
+# Uncomment if using a _compat.typing backport
+# typing-modules = ["tolteca_simu._compat.typing"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+  "D",        # Tests need no docstrings
+  "INP001",   # tests/ is not a package
+  "PLR2004",  # Literal values are fine in assertions
+  "S101",     # pytest uses assert
+  "T20",      # Printing is fine in tests
+]
+"docs/conf.py" = [
+  "A001",    # Sphinx requires the name `copyright`
+  "INP001",  # docs/ is not a package
+]
+
+[tool.ruff.lint.flake8-type-checking]
+# Pydantic reads annotations at runtime, so the imports they use must stay real.
+runtime-evaluated-base-classes = [
+  "pydantic.BaseModel",
+]
+runtime-evaluated-decorators = [
+  "pydantic.validate_call",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+
+[tool.numpydoc_validation]
+# The hook reads the source only. It cannot see the constructor of a dataclass
+# or a Pydantic model, or one a class inherits, and reports the documented
+# parameters as unknown: mark such a class with `# numpydoc ignore=PR02`.
+#
+# Every check except these, each for the reason given.
+checks = [
+  "all",
+  # Written where there is something to say, not on every object:
+  "ES01",  # an extended summary
+  "EX01",  # an Examples section
+  "SA01",  # a See Also section
+  # Ruff decides which objects need a docstring. This check also reports
+  # overload stubs and nested functions.
+  "GL08",
+  # The hook reports it for every property. numpydoc's own validator does not
+  # ask a property for a Returns section.
+  "RT01",
+  # Rejects any summary whose first word ends in one "s", such as "Alias for".
+  # Ruff's D401 checks the verb form.
+  "SS05",
+]
+exclude = [
+  # Private objects and magic methods are not in the rendered API reference.
+  '\._',
+]
+exclude_files = [
+  # Tests need no docstrings.
+  '^tests/',
+  # A Typer command's docstring is its help text, and each parameter carries
+  # its own help.
+  '^src/.+/cli/',
+]
+
+
+[tool.repo-review]
+ignore = [
+  "PY007",  # Task runner: just is not one the check recognises
+  "GH100",  # No GitHub Actions workflows by default
+]

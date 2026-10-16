@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Run the hooks in .pre-commit-config.yaml on every commit.
+#
+# This script is tracked so the gate travels with the repository. The hook
+# that `prek install` writes into .git/hooks contains a machine-specific
+# path, which breaks when the same checkout is used from a container or
+# another machine. `just install` activates this one instead:
+#
+#     git config core.hooksPath .githooks
+
+exec uvx prek run "$@"
