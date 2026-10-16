@@ -140,6 +140,9 @@ ignore = [
   "S101",     # pytest uses assert
   "T20",      # Printing is fine in tests
 ]
+"src/tolteca_simu/mapping.py" = [
+  "PLR0913",  # Pattern functions take every pattern parameter explicitly
+]
 "docs/conf.py" = [
   "A001",    # Sphinx requires the name `copyright`
   "INP001",  # docs/ is not a package

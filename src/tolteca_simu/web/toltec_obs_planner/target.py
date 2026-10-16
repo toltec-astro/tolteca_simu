@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import dash_mantine_components as dmc
 from astropy.time import Time
@@ -10,7 +10,7 @@ from dash import Input, Output, State, dcc
 from dash_component_template import Template
 from pydantic import ValidationError
 
-from tolteca_simu.planning import ObservationDescription, parse_target
+from tolteca_simu.planning import parse_target
 
 if TYPE_CHECKING:
     from dash import Dash
@@ -21,8 +21,9 @@ __all__ = ["TargetPanel"]
 class TargetPanel(Template):
     """Inputs for the target and the observation start time.
 
-    The panel publishes the observation description, serialized as JSON, in
-    its `description` store; the store holds None while an input is invalid.
+    The panel publishes the target part of the observation description,
+    serialized as JSON, in its `target` store: ``target_name``, ``target`` and
+    ``t0``. The store holds None while an input is invalid.
     """
 
     def __init__(self) -> None:
@@ -44,11 +45,11 @@ class TargetPanel(Template):
         self._time_input = stack.child[dmc.TimeInput](
             label="Start time (UT)", withSeconds=True, value="06:00:00"
         )
-        self._target = stack.child[dcc.Store](data=None)
-        self.description = stack.child[dcc.Store](data=None)
+        self._resolved = stack.child[dcc.Store](data=None)
+        self.target = stack.child[dcc.Store](data=None)
 
     def setup_callbacks(self, app: Dash) -> None:
-        """Resolve the target and assemble the description.
+        """Resolve the target and publish it with the start time.
 
         Parameters
         ----------
@@ -67,7 +68,7 @@ class TargetPanel(Template):
         )
 
         @app.callback(
-            Output(self._target(), "data"),
+            Output(self._resolved(), "data"),
             Output(self._target_input(), "error"),
             Output(self._target_status(), "children"),
             Input(self._target_input(), "value"),
@@ -86,22 +87,23 @@ class TargetPanel(Template):
             return {"name": text, "coord": f"{ra:.17g}d {dec:.17g}d"}, None, status
 
         @app.callback(
-            Output(self.description(), "data"),
+            Output(self.target(), "data"),
             Output(self._time_input(), "error"),
-            Input(self._target(), "data"),
+            Input(self._resolved(), "data"),
             Input(self._date_input(), "value"),
             Input(self._time_input(), "value"),
         )
-        def _make_description(
-            target: dict[str, str] | None, date: str | None, time: str
-        ) -> tuple[dict[str, Any] | None, str | None]:
-            if target is None or not date:
+        def _make_target(
+            resolved: dict[str, str] | None, date: str | None, time: str
+        ) -> tuple[dict[str, str] | None, str | None]:
+            if resolved is None or not date:
                 return None, None
             try:
                 t0 = Time(f"{date} {time}", scale="utc")
             except ValueError:
                 return None, "Use HH:MM:SS."
-            description = ObservationDescription.model_validate(
-                {"target_name": target["name"], "target": target["coord"], "t0": t0}
-            )
-            return description.model_dump(mode="json"), None
+            return {
+                "target_name": resolved["name"],
+                "target": resolved["coord"],
+                "t0": t0.isot,
+            }, None

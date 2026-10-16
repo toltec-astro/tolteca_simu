@@ -3,7 +3,9 @@
 import astropy.units as u
 from pydantic import ConfigDict, Field
 from tollan.config import FrozenBaseModel
-from tollan.config.types import AngleQuantityField
+from tollan.config.types import AbsFilePath, AngleQuantityField, TimeQuantityField
+
+from tolteca_simu.planning.presets import get_default_presets_path
 
 __all__ = ["ObsPlannerConfig", "ObsPlannerServerConfig", "SimuConfig"]
 
@@ -29,6 +31,13 @@ class ObsPlannerConfig(FrozenBaseModel):
     )
     target_alt_min: AngleQuantityField = Field(
         default=20 << u.deg, description="Lowest usable target elevation."
+    )
+    t_exp_max: TimeQuantityField = Field(
+        default=1 << u.h, description="Longest pattern a raster-like preset may take."
+    )
+    presets_path: AbsFilePath = Field(
+        default_factory=get_default_presets_path,
+        description="Mapping presets file; defaults to the packaged presets.",
     )
     server: ObsPlannerServerConfig = Field(
         default_factory=ObsPlannerServerConfig, description="Server launch settings."

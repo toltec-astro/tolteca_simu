@@ -3,7 +3,17 @@ import pytest
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
+from tolteca_simu.mapping import LissajousPattern
 from tolteca_simu.planning import ObservationDescription, parse_target
+
+LISSAJOUS = LissajousPattern(
+    x_length=4 * u.arcmin,
+    y_length=4 * u.arcmin,
+    x_omega=0.5 * u.rad / u.s,
+    y_omega=0.4 * u.rad / u.s,
+    delta=45 * u.deg,
+    rot=0 * u.deg,
+)
 
 
 @pytest.mark.parametrize(
@@ -22,7 +32,12 @@ def test_parse_target_coordinates(text: str, ra_deg: float, dec_deg: float) -> N
 def test_description_records_coordinate_not_name() -> None:
     resolved = SkyCoord(83.6324 * u.deg, 22.0174 * u.deg)
     description = ObservationDescription(
-        target_name="M1", target=resolved, t0=Time("2026-01-15 06:00:00")
+        target_name="M1",
+        target=resolved,
+        t0=Time("2026-01-15 06:00:00"),
+        mapping=LISSAJOUS,
+        ref_frame="icrs",
+        t_exp=10 * u.min,
     )
     data = description.model_dump(mode="json")
     assert data["target_name"] == "M1"
@@ -31,3 +46,16 @@ def test_description_records_coordinate_not_name() -> None:
     reloaded = ObservationDescription.model_validate(data)
     assert reloaded.target.separation(resolved).to_value(u.arcsec) < 1e-9
     assert reloaded.t0 == description.t0
+    assert reloaded.mapping == LISSAJOUS
+    assert reloaded.t_exp == 10 * u.min
+
+
+def test_exposure_time_defaults_to_one_pass() -> None:
+    description = ObservationDescription(
+        target_name="M1",
+        target=SkyCoord(83.6324 * u.deg, 22.0174 * u.deg),
+        t0=Time("2026-01-15 06:00:00"),
+        mapping=LISSAJOUS,
+        ref_frame="altaz",
+    )
+    assert description.get_t_exp() == LISSAJOUS.t_pattern

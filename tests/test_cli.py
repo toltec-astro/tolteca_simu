@@ -44,10 +44,12 @@ def test_defaults_without_simu_section() -> None:
     assert config.title == "TolTEC Observation Planner"
     assert config.target_alt_min == 20 * u.deg
     assert config.server.port == 8054
+    assert config.t_exp_max == 1 * u.h
+    assert config.presets_path.name == "toltec_obs_planner_presets.yaml"
 
 
 def test_create_app_uses_title() -> None:
     runtime = RuntimeContext({"simu": {"obs_planner": {"title": "Planner Test"}}})
     dash_app = create_app(runtime)
     assert dash_app.title == "Planner Test"
-    assert len(dash_app.callback_map) == 4
+    assert len(dash_app.callback_map) == 8

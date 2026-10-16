@@ -1,0 +1,322 @@
+# TolTEC observation planner mapping presets.
+#
+# Converted from the production planner presets rev20251014.0
+# (unity-toltec4: ~/toltec_astro_v1/run/dasha/), with the same values.
+presets:
+  - key: toltec_polarimetry_raster
+    label: "TolTEC Polarimetry: 20 x 20 arcmin² raster, ~45min"
+    conditions:
+      polarized: true
+    description:
+      A slow raster scan pattern for TolTEC polarimetry with half-wave plate
+      rotating.
+    description_long: |-
+      The slow raster pattern is for making maps of polarimetry signal of any size. The scan speed is fixed at 8 arcsec/s, to allow the full modulation of half-wave plate within the beam size.
+    pattern: raster
+    params:
+      length:
+        value: 18.0
+        unit: arcmin
+        min: 0.0
+        max: 60.0
+      space:
+        value: 1.0
+        unit: arcmin
+        min: 0.0
+        max: 4.0
+      n_scans:
+        value: 19.0
+        min: 0.0
+      speed:
+        value: 8.0
+        unit: arcsec/s
+        min: 0.0
+        max: 8.0
+      t_turnaround:
+        value: 5.0
+        unit: s
+        min: 4.0
+        max: 20.0
+        editable: false
+        visible: false
+      rot:
+        value: 0.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+  - key: toltec_blank_field_raster
+    label: "TolTEC: Large - 2 x 2 deg² raster, ~30min"
+    conditions:
+      polarized: false
+    description:
+      A large raster scan pattern for blank field observation using TolTEC.
+    description_long:
+      The raster pattern is the go-to pattern for making large TolTEC maps with
+      high speed scan.
+    pattern: raster
+    params:
+      length:
+        value: 2.0
+        unit: deg
+        min: 0.0
+        max: 3.0
+      space:
+        value: 2.0
+        unit: arcmin
+        min: 0.0
+        max: 4.0
+      n_scans:
+        value: 61.0
+        min: 0.0
+      speed:
+        value: 5.0
+        unit: arcmin/s
+        min: 0.0
+        max: 5.0
+      t_turnaround:
+        value: 5.0
+        unit: s
+        min: 0.0
+        max: 20.0
+        editable: false
+        visible: false
+      rot:
+        value: 0.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+  - key: toltec_blank_field_rastajous
+    label: "TolTEC: Medium - 12 x 12 arcmin² rastajous, ~20min"
+    conditions:
+      polarized: false
+    description:
+      A rastajous pattern for medium-sized field observation using TolTEC
+    description_long: |-
+      A Rastajous is a combination of a Lissajous and a Raster map. The idea is that the lissajous pattern will be slowly swept over a larger field, akin to painting with a very fat brush. The key is to get the relative timing of the two patterns right. The raster part of the map should be pretty slow so that the turns at the ends of the scans can be preserved.
+    pattern: rastajous
+    params:
+      length:
+        value: 10.0
+        unit: arcmin
+        min: 5.0
+        max: 45.0
+      space:
+        value: 1.0
+        unit: arcmin
+        min: 0.0
+        max: 4.0
+      n_scans:
+        value: 10.0
+        min: 0.0
+      speed:
+        value: 5.0
+        unit: arcsec/s
+        min: 2.0
+        max: 180.0
+      t_turnaround:
+        value: 12.0
+        unit: s
+        min: 0.0
+        max: 20.0
+        description: |-
+          The turnaround time for the rastajous. This value needs to be carefully estimated to match the raster scan speed. A rule of thumb is to use [space/speed].
+      rot:
+        value: 0.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      speed_lissajous:
+        value: 50.0
+        unit: arcsec/s
+        min: 0.0
+        max: 100.0
+        description: The lissajous scan rate.
+      delta:
+        value: 0.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      x_length_0:
+        value: 2.0
+        unit: arcmin
+        min: 2.0
+        max: 12.0
+      y_length_0:
+        value: 2.0
+        unit: arcmin
+        min: 2.0
+        max: 12.0
+      x_omega_0:
+        value: 4.0
+        unit: rad/s
+        min: 0.0
+      y_omega_0:
+        value: 3.0
+        unit: rad/s
+        min: 0.0
+      delta_0:
+        value: 60.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      x_length_1:
+        value: 0.0
+        unit: arcmin
+        min: 0.0
+        max: 12.0
+        editable: false
+        visible: false
+      y_length_1:
+        value: 0.0
+        unit: arcmin
+        min: 0.0
+        max: 2.0
+        editable: false
+        visible: false
+      x_omega_1:
+        value: 1.0
+        unit: rad/s
+        min: 0.0
+        editable: false
+        visible: false
+      y_omega_1:
+        value: 1.0
+        unit: rad/s
+        min: 0.0
+        editable: false
+        visible: false
+      delta_1:
+        value: 90.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+        editable: false
+        visible: false
+  - key: toltec_blank_field_double_lissajous
+    label: "TolTEC: Small - 10 x 10 arcmin² double_lissajous, 30min"
+    conditions:
+      polarized: false
+    description:
+      A double lissajous pattern with more controls for small-sized field
+      observation using TolTEC
+    description_long: |-
+      This is the advanced lissajous pattern which simply sums to other lissajous patterns. The general idea is to have a small, slow lissajous run underneath a larger lissajous pattern.
+    pattern: double_lissajous
+    params:
+      speed_lissajous:
+        value: 50.0
+        unit: arcsec/s
+        min: 0.0
+        max: 100.0
+        description: The lissajous scan rate.
+      x_length_0:
+        value: 6.0
+        unit: arcmin
+        min: 2.0
+        max: 15.0
+      y_length_0:
+        value: 6.0
+        unit: arcmin
+        min: 2.0
+        max: 15.0
+      x_omega_0:
+        value: 5.0
+        unit: rad/s
+        min: 0.0
+      y_omega_0:
+        value: 4.0
+        unit: rad/s
+        min: 0.0
+      delta_0:
+        value: 45.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      x_length_1:
+        value: 2.0
+        unit: arcmin
+        min: 0.0
+        max: 4.0
+      y_length_1:
+        value: 2.0
+        unit: arcmin
+        min: 0.0
+        max: 4.0
+      x_omega_1:
+        value: 1.0
+        unit: rad/s
+        min: 0.0
+      y_omega_1:
+        value: 1.0
+        unit: rad/s
+        min: 0.0
+      delta_1:
+        value: 90.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      delta:
+        value: 18.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      rot:
+        value: 0.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      t_exp:
+        value: 30.0
+        unit: min
+        min: 1.0
+        max: 60.0
+        description: Exposure time of observation.
+  - key: toltec_blank_field_lissajous
+    label: "TolTEC: Small - 6 x 6 arcmin² lissajous, 10min"
+    conditions:
+      polarized: false
+    description: A lissajous pattern for small field observation using TolTEC.
+    description_long: |-
+      This is the most basic lissajous pattern. It is useful for photometry maps and other very compact maps. Making the x and y lengths too large will result in very uneven coverage and so is discouraged. Try the Double Lissajous or rastajous in that case instead.
+    pattern: lissajous
+    params:
+      speed_lissajous:
+        value: 50.0
+        unit: arcsec/s
+        min: 0.0
+        max: 100.0
+        description: The lissajous scan rate.
+      x_length:
+        value: 4.0
+        unit: arcmin
+        min: 0.0
+        max: 12.0
+      y_length:
+        value: 4.0
+        unit: arcmin
+        min: 0.0
+        max: 12.0
+      x_omega:
+        value: 5.2
+        unit: rad/s
+        min: 0.0
+      y_omega:
+        value: 4.0
+        unit: rad/s
+        min: 0.0
+      delta:
+        value: 45.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      rot:
+        value: 0.0
+        unit: deg
+        min: 0.0
+        max: 360.0
+      t_exp:
+        value: 10.0
+        unit: min
+        min: 1.0
+        max: 60.0
+        description: Exposure time of observation.

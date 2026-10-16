@@ -23,9 +23,6 @@ if TYPE_CHECKING:
 
 __all__ = ["VisibilityPanel", "make_visibility_figure"]
 
-# The planner's target check marks this interval after the start time.
-_T_MARK = 2 << u.min
-
 
 def make_visibility_figure(
     visibility: TargetVisibility, t1: Time, target_alt_min: u.Quantity
@@ -37,7 +34,7 @@ def make_visibility_figure(
     visibility : tolteca_simu.planning.TargetVisibility
         Altitudes over the observing day.
     t1 : astropy.time.Time
-        End of the interval marked from the start time.
+        End of the observation, marked from the start time.
     target_alt_min : astropy.units.Quantity
         Lowest usable elevation; lower altitudes are shaded.
 
@@ -154,7 +151,9 @@ class VisibilityPanel(Template):
                 description.target, description.t0, get_lmt_observer()
             )
             figure = make_visibility_figure(
-                visibility, description.t0 + _T_MARK, self._target_alt_min
+                visibility,
+                description.t0 + description.get_t_exp(),
+                self._target_alt_min,
             )
             message, color = self._check(visibility)
             return figure, message, color
