@@ -15,6 +15,7 @@ from tolteca_simu.toltec import TOLTEC_ARRAYS
 
 if TYPE_CHECKING:
     from tolteca_simu.toltec.planning import ToltecPlanningResult
+    from tolteca_simu.toltec.time_cost import TimeCost
 
 __all__ = ["ToltecResultsPanel", "make_coverage_figure", "make_sensitivity_tabs"]
 
@@ -76,13 +77,17 @@ def make_coverage_figure(result: ToltecPlanningResult, unit: str) -> go.Figure:
     return fig
 
 
-def make_sensitivity_tabs(result: ToltecPlanningResult) -> dmc.Tabs:
-    """Tabulate the sensitivity of each array.
+def make_sensitivity_tabs(
+    result: ToltecPlanningResult, time_cost: TimeCost
+) -> dmc.Tabs:
+    """Tabulate the sensitivity of each array and the project time.
 
     Parameters
     ----------
     result : tolteca_simu.toltec.planning.ToltecPlanningResult
         The TolTEC results.
+    time_cost : tolteca_simu.toltec.time_cost.TimeCost
+        The project time.
 
     Returns
     -------
@@ -114,6 +119,18 @@ def make_sensitivity_tabs(result: ToltecPlanningResult) -> dmc.Tabs:
             ("Median RMS depth per pass", s.depth_rms),
             ("Number of passes", result.n_passes),
             ("Coadded RMS depth", s.depth_rms_coadd),
+            ("Project science time", time_cost.science_time),
+            ("Science time overhead", time_cost.science_overhead),
+            (
+                "Observing nights",
+                (
+                    f"{time_cost.n_nights} "
+                    f"(at {time_cost.science_time_per_night:g} of science per night)"
+                ),
+            ),
+            ("Project total time (incl. overhead)", time_cost.total_time),
+            ("Project overhead", time_cost.overhead_time),
+            ("Project overhead %", f"{time_cost.overhead_fraction:.1%}"),
         ]
         panels.append(
             dmc.TabsPanel(

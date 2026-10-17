@@ -196,6 +196,11 @@ exclude_files = [
 ]
 
 
+[tool.codespell]
+# OT: the LMT Observing Tool.
+ignore-words-list = "ot"
+
+
 [tool.repo-review]
 ignore = [
   "PY007",  # Task runner: just is not one the check recognises
