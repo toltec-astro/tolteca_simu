@@ -13,8 +13,9 @@ from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from dash import Dash
+    from dash_component_template import LazyComponent
 
-    from tolteca_simu.planning import MappingPresets
+    from tolteca_simu.planning import MappingPreset, MappingPresets
 
 __all__ = ["MappingPanel"]
 
@@ -23,36 +24,61 @@ _REF_FRAMES = [
     {"label": "Az/Alt", "value": "altaz"},
     {"label": "RA/Dec", "value": "icrs"},
 ]
+_DESIRED_SENS_DEFAULT = 1.0  # mJy/beam
+
+
+def _is_enabled(preset: MappingPreset, conditions: dict[str, Any]) -> bool:
+    return all(conditions.get(k) == v for k, v in preset.conditions.items())
+
+
+def _ref_frame_options(*, polarized: bool) -> list[dict[str, Any]]:
+    # Polarimetry maps in RA/Dec only.
+    return [o | {"disabled": polarized and o["value"] == "altaz"} for o in _REF_FRAMES]
 
 
 class MappingPanel(Template):
     """Preset choice, preset parameters, and the reference frame.
 
     The panel publishes, serialized as JSON, the mapping part of the observation
-    description in its `mapping` store: ``mapping``, ``ref_frame`` and
-    ``t_exp``. The store holds None while the parameters are invalid.
+    description in its `mapping` store: ``mapping``, ``ref_frame``, ``t_exp``
+    and ``desired_sens``. The store holds None while the parameters are invalid.
+    Presets whose conditions the instrument settings do not meet are disabled.
 
     Parameters
     ----------
     presets : tolteca_simu.planning.MappingPresets
-        The presets to offer; the first is selected initially.
+        The presets to offer; the first enabled one is selected initially.
     t_exp_max : astropy.units.Quantity
         Longest duration accepted for a preset without an exposure time.
+    instrument : dash_component_template.LazyComponent
+        Store holding the instrument settings, whose values are the conditions.
     """
 
-    def __init__(self, presets: MappingPresets, t_exp_max: u.Quantity) -> None:
+    def __init__(
+        self,
+        presets: MappingPresets,
+        t_exp_max: u.Quantity,
+        instrument: LazyComponent,
+    ) -> None:
         super().__init__()
         self._presets = presets
         self._t_exp_max = t_exp_max
+        self._instrument = instrument
         card = self.child[dmc.Card](withBorder=True, padding="md")
         stack = card.child[dmc.Stack](gap="sm")
         stack.child[dmc.Title]("Mapping", order=5)
-        keys = [preset.key for preset in presets.presets]
+        self._desired_sens = stack.child[dmc.NumberInput](
+            label="Desired map RMS",
+            description="Sets the number of passes of the pattern.",
+            value=_DESIRED_SENS_DEFAULT,
+            min=0,
+            rightSection="mJy/beam",
+            rightSectionWidth=72,
+            size="xs",
+        )
+        data, value = self._make_preset_options({"polarized": False})
         self._preset_select = stack.child[dmc.Select](
-            label="Mapping preset",
-            data=[{"value": p.key, "label": p.label} for p in presets.presets],
-            value=keys[0],
-            allowDeselect=False,
+            label="Mapping preset", data=data, value=value, allowDeselect=False
         )
         self._preset_text = stack.child[dmc.Text](size="xs", c="dimmed")
         self._forms = []
@@ -81,6 +107,16 @@ class MappingPanel(Template):
         self._status = stack.child[dmc.Text](size="xs")
         self.mapping = stack.child[dcc.Store](data=None)
 
+    def _make_preset_options(
+        self, conditions: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], str]:
+        enabled = [p.key for p in self._presets.presets if _is_enabled(p, conditions)]
+        data: list[dict[str, Any]] = [
+            {"value": p.key, "label": p.label, "disabled": p.key not in enabled}
+            for p in self._presets.presets
+        ]
+        return data, enabled[0]
+
     def setup_callbacks(self, app: Dash) -> None:
         """Show the chosen preset and publish its mapping.
 
@@ -107,17 +143,48 @@ class MappingPanel(Template):
         params = self._param_input({"preset": ALL, "param": ALL})
 
         @app.callback(
+            Output(self._preset_select(), "data"),
+            Output(self._preset_select(), "value"),
+            Output(self._ref_frame(), "data"),
+            Output(self._ref_frame(), "value"),
+            Input(self._instrument(), "data"),
+            State(self._preset_select(), "value"),
+            State(self._ref_frame(), "value"),
+        )
+        def _apply_conditions(
+            instrument: dict[str, Any] | None, key: str, ref_frame: str
+        ) -> tuple:
+            conditions = {
+                k: v for k, v in (instrument or {}).items() if isinstance(v, bool)
+            }
+            data, first_enabled = self._make_preset_options(conditions)
+            if not _is_enabled(self._presets.get(key), conditions):
+                key = first_enabled
+            polarized = bool(conditions.get("polarized", False))
+            frames = _ref_frame_options(polarized=polarized)
+            if polarized:
+                ref_frame = "icrs"
+            return data, key, frames, ref_frame
+
+        @app.callback(
             Output(self.mapping(), "data"),
             Output(self._status(), "children"),
             Output(self._status(), "c"),
             Input(self._preset_select(), "value"),
             Input(params, "value"),
             Input(self._ref_frame(), "value"),
+            Input(self._desired_sens(), "value"),
             State(params, "id"),
         )
         def _make_mapping(
-            key: str, values: list, ref_frame: str, ids: list[dict[str, str]]
+            key: str,
+            values: list,
+            ref_frame: str,
+            desired_sens: float | None,
+            ids: list[dict[str, str]],
         ) -> tuple[dict[str, Any] | None, str, str]:
+            if desired_sens is None or desired_sens == "" or float(desired_sens) <= 0:
+                return None, "Enter a positive desired map RMS.", "red"
             preset = self._presets.get(key)
             selected = {
                 i["param"]: v
@@ -148,5 +215,6 @@ class MappingPanel(Template):
                 "mapping": pattern.model_dump(mode="json"),
                 "ref_frame": ref_frame,
                 "t_exp": None if t_exp is None else f"{t_exp.to_value(u.s)!r} s",
+                "desired_sens": f"{float(desired_sens)!r} mJy",
             }
             return data, message, "dimmed"

@@ -1,12 +1,16 @@
 """The LMT as an observing site."""
 
 from functools import cache
+from typing import Literal
 
 from astroplan import Observer
 from astropy.coordinates import EarthLocation
 from tolteca_datamodels.lmt.types import LmtInfo
 
-__all__ = ["get_lmt_observer"]
+__all__ = ["LmtAtmModelName", "get_lmt_observer"]
+
+type LmtAtmModelName = Literal["am_q25", "am_q50", "am_q75"]
+"""Names of the LMT am atmosphere models: quartiles of the conditions."""
 
 
 @cache

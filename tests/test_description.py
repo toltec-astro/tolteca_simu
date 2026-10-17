@@ -5,6 +5,7 @@ from astropy.time import Time
 
 from tolteca_simu.mapping import LissajousPattern
 from tolteca_simu.planning import ObservationDescription, parse_target
+from tolteca_simu.toltec.settings import ToltecSettings
 
 LISSAJOUS = LissajousPattern(
     x_length=4 * u.arcmin,
@@ -38,6 +39,9 @@ def test_description_records_coordinate_not_name() -> None:
         mapping=LISSAJOUS,
         ref_frame="icrs",
         t_exp=10 * u.min,
+        atm_model_name="am_q25",
+        instrument=ToltecSettings(polarized=False, array_name="a1100"),
+        desired_sens=1 * u.mJy,
     )
     data = description.model_dump(mode="json")
     assert data["target_name"] == "M1"
@@ -48,6 +52,8 @@ def test_description_records_coordinate_not_name() -> None:
     assert reloaded.t0 == description.t0
     assert reloaded.mapping == LISSAJOUS
     assert reloaded.t_exp == 10 * u.min
+    assert reloaded.instrument == description.instrument
+    assert reloaded.desired_sens == 1 * u.mJy
 
 
 def test_exposure_time_defaults_to_one_pass() -> None:
@@ -57,5 +63,8 @@ def test_exposure_time_defaults_to_one_pass() -> None:
         t0=Time("2026-01-15 06:00:00"),
         mapping=LISSAJOUS,
         ref_frame="altaz",
+        atm_model_name="am_q25",
+        instrument=ToltecSettings(polarized=False, array_name="a1100"),
+        desired_sens=1 * u.mJy,
     )
     assert description.get_t_exp() == LISSAJOUS.t_pattern
