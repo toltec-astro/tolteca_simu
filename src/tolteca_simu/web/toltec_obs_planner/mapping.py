@@ -9,15 +9,56 @@ import astropy.units as u
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, dcc
 from dash_component_template import Template
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
+from tollan.config.types import TimeQuantityField
+
+from tolteca_simu.planning.description import FluxDensityQuantityField
 
 if TYPE_CHECKING:
     from dash import Dash
     from dash_component_template import LazyComponent
 
+    from tolteca_simu.mapping import MappingPattern
     from tolteca_simu.planning import MappingPreset, MappingPresets
 
-__all__ = ["MappingPanel"]
+__all__ = ["MappingPanel", "make_mapping_data"]
+
+_t_exp_adapter = TypeAdapter(TimeQuantityField | None)
+_desired_sens_adapter = TypeAdapter(FluxDensityQuantityField)
+
+
+def make_mapping_data(
+    pattern: MappingPattern,
+    ref_frame: str,
+    t_exp: u.Quantity | None,
+    desired_sens: u.Quantity,
+) -> dict[str, Any]:
+    """Return the mapping part of an observation description, as JSON.
+
+    Parameters
+    ----------
+    pattern : tolteca_simu.mapping.MappingPattern
+        The mapping pattern.
+    ref_frame : {"altaz", "icrs"}
+        Frame of the pattern offsets.
+    t_exp : astropy.units.Quantity or None
+        Exposure time; None observes the pattern once.
+    desired_sens : astropy.units.Quantity
+        Desired coadded map depth.
+
+    Returns
+    -------
+    dict
+        ``mapping``, ``ref_frame``, ``t_exp`` and ``desired_sens``, serialized
+        by their field types.
+    """
+    return {
+        "mapping": pattern.model_dump(mode="json"),
+        "ref_frame": ref_frame,
+        "t_exp": _t_exp_adapter.dump_python(t_exp, mode="json"),
+        "desired_sens": _desired_sens_adapter.dump_python(desired_sens, mode="json"),
+    }
+
 
 _PARAM_ID_TYPE = "mapping-preset-param"
 _REF_FRAMES = [
@@ -211,10 +252,7 @@ class MappingPanel(Template):
                 return None, message, "red"
             else:
                 message = f"Time to finish the pattern: {t_pattern:.2f}."
-            data = {
-                "mapping": pattern.model_dump(mode="json"),
-                "ref_frame": ref_frame,
-                "t_exp": None if t_exp is None else f"{t_exp.to_value(u.s)!r} s",
-                "desired_sens": f"{float(desired_sens)!r} mJy",
-            }
+            data = make_mapping_data(
+                pattern, ref_frame, t_exp, float(desired_sens) << u.mJy
+            )
             return data, message, "dimmed"

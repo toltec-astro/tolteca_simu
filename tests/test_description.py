@@ -4,8 +4,12 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
 from tolteca_simu.mapping import LissajousPattern
-from tolteca_simu.planning import ObservationDescription, parse_target
+from tolteca_simu.planning import MappingPresets, ObservationDescription, parse_target
+from tolteca_simu.planning.presets import get_default_presets_path
 from tolteca_simu.toltec.settings import ToltecSettings
+from tolteca_simu.web.toltec_obs_planner.mapping import make_mapping_data
+
+PRESETS = MappingPresets.from_yaml(get_default_presets_path())
 
 LISSAJOUS = LissajousPattern(
     x_length=4 * u.arcmin,
@@ -68,3 +72,24 @@ def test_exposure_time_defaults_to_one_pass() -> None:
         desired_sens=1 * u.mJy,
     )
     assert description.get_t_exp() == LISSAJOUS.t_pattern
+
+
+@pytest.mark.parametrize("key", [p.key for p in PRESETS.presets])
+def test_mapping_panel_data_validates(key: str) -> None:
+    # Regression: NumPy 2 reprs of quantities do not parse as quantities.
+    preset = PRESETS.get(key)
+    pattern, t_exp = preset.make_mapping({n: p.value for n, p in preset.params.items()})
+    data = make_mapping_data(pattern, "icrs", t_exp, 0.5 * u.mJy)
+    description = ObservationDescription.model_validate(
+        data
+        | {
+            "target_name": "M1",
+            "target": "83.6324d 22.0174d",
+            "t0": "2026-01-15T06:00:00",
+            "atm_model_name": "am_q25",
+            "instrument": {"polarized": False, "array_name": "a1100"},
+        }
+    )
+    assert description.mapping == pattern
+    assert description.t_exp == t_exp
+    assert description.desired_sens == 0.5 * u.mJy
