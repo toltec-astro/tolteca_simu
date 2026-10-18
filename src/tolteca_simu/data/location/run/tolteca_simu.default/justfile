@@ -1,0 +1,10 @@
+# justfile — tolteca_simu.default preset entry point
+# Loaded as `mod tolteca_simu` by location/run/justfile.
+# Recipes available as: just run tolteca_simu <recipe>
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+PRESET_DIR := module_directory()
+SVC_DIR := env_var("TOLTECA_DEPLOY_ROOT") / "run" / "tolteca_simu"
+
+import 'just.d/00_default.just'

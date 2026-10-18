@@ -39,8 +39,13 @@ dependencies = [
   "dash-mantine-components",
   "dash-component-template",
   "plotly",
-  "toast ==3.0.6",
+  "gunicorn",
 ]
+
+[project.optional-dependencies]
+# The atmosphere backend; the planner does not need it. Wheels exist for macOS
+# arm64 and Linux x86_64 only.
+toast = ["toast ==3.0.6"]
 
 [project.urls]
 Homepage = "https://github.com/toltec-astro/tolteca_simu"
@@ -73,6 +78,11 @@ docs = [
   "autodoc_pydantic",
   "sphinxcontrib-typer",
 ]
+
+
+[tool.setuptools.package-data]
+# Mapping presets and the run profile for deployment locations.
+tolteca_simu = ["data/**/*"]
 
 
 [tool.setuptools_scm]

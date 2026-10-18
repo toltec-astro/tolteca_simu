@@ -33,12 +33,28 @@ _TOLTEC_DET_NOISE_FACTORS: dict[LmtAtmModelName, dict[ToltecArrayName, float]] =
 
 
 class ObsPlannerServerConfig(FrozenBaseModel):
-    """Address and mode of the planner's development server."""
+    """Address, path, and processes of the planner's server."""
 
     model_config = ConfigDict(extra="forbid")
     host: str = Field(default="127.0.0.1", description="Server bind address.")
     port: int = Field(default=8054, ge=1, le=65535, description="Server port.")
-    debug: bool = Field(default=False, description="Enable Dash development mode.")
+    url_base_pathname: str = Field(
+        default="/",
+        pattern=r"^/(.+/)?$",
+        description="URL path the planner is served under, such as "
+        "'/toltec_obs_planner/' behind a reverse proxy that forwards it unchanged.",
+    )
+    debug: bool = Field(
+        default=False, description="Enable Dash development mode (run only)."
+    )
+    workers: int = Field(
+        default=4, ge=1, description="Gunicorn worker processes (serve only)."
+    )
+    timeout: int = Field(
+        default=120,
+        ge=1,
+        description="Gunicorn worker timeout in seconds (serve only).",
+    )
 
 
 class LmtPlannerConfig(FrozenBaseModel):

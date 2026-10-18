@@ -71,7 +71,11 @@ def create_app(runtime: RuntimeContext) -> Dash:
     """
     config = Simu(runtime).config.obs_planner
     planner = ObsPlanner(config)
-    app = Dash(__name__, title=config.title)
+    app = Dash(
+        __name__,
+        title=config.title,
+        url_base_pathname=config.server.url_base_pathname,
+    )
     app.layout = planner.layout()
     planner.register_callbacks(app)
     return app

@@ -58,7 +58,22 @@ def run(
             shorthand.extend([f"--simu.obs_planner.server.{field}", json.dumps(value)])
     runtime = _runtime(ctx, shorthand)
     server = Simu(runtime).config.obs_planner.server
-    create_app(runtime).run(**server.model_dump())
+    create_app(runtime).run(host=server.host, port=server.port, debug=server.debug)
+
+
+@obs_planner_app.command(context_settings=_RUNTIME_ARGS)
+@RuntimeContext.add_cli_options()
+def serve(ctx: typer.Context) -> None:
+    """Serve the planner with gunicorn, for production.
+
+    The simu.obs_planner.server settings set the address, the URL path, the
+    worker processes and their timeout; dotted settings override them.
+    """
+    from tolteca_simu.web.toltec_obs_planner.server import (  # noqa: PLC0415
+        serve as serve_planner,
+    )
+
+    serve_planner(_runtime(ctx))
 
 
 @obs_planner_app.command(context_settings=_RUNTIME_ARGS)

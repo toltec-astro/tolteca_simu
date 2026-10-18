@@ -1,0 +1,7 @@
+# Relative paths use the deployment location root. Recipes run from that root.
+simu:
+  obs_planner:
+    cal_data_path: src/tolteca_cal_data
+    server:
+      host: 127.0.0.1
+      port: 8054
