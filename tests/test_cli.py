@@ -75,4 +75,4 @@ def test_create_app_uses_title(cal_data_path: Path) -> None:
     )
     dash_app = create_app(runtime)
     assert dash_app.title == "Planner Test"
-    assert len(dash_app.callback_map) == 15
+    assert len(dash_app.callback_map) == 16
