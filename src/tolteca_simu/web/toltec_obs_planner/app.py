@@ -6,8 +6,11 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+import astropy.units as u
 import dash
 import dash_mantine_components as dmc
+from astropy.coordinates import SkyCoord
+from astropy.time import Time
 from dash import Dash, Input, Output, State, ctx, dcc
 from dash_component_template import Template
 
@@ -51,8 +54,21 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _load_earth_orientation() -> None:
+    # Positions at the LMT need astropy's Earth orientation (IERS) table. On
+    # first use astropy reads it and, when stale, downloads a new one; that
+    # takes seconds, so it is done here rather than in an observer's request.
+    origin = SkyCoord(0 * u.deg, 0 * u.deg)
+    origin.transform_to(get_lmt_observer().altaz(time=Time.now()))
+
+
 def create_app(runtime: RuntimeContext) -> Dash:
     """Create the planner from the ``simu.obs_planner`` settings.
+
+    The Earth orientation data for time-dependent computations are loaded
+    here, refreshing astropy's table if it is stale, so that the first request
+    does not wait for them. Processes forked from this one, such as gunicorn
+    workers, share them.
 
     Parameters
     ----------
@@ -65,6 +81,7 @@ def create_app(runtime: RuntimeContext) -> Dash:
         Application with its layout and callbacks; no server is started.
     """
     config = Simu(runtime).config.obs_planner
+    _load_earth_orientation()
     planner = ObsPlanner(config)
     # The page loads the scripts of its viewer backend only.
     if isinstance(config.viewer, FireflyViewerConfig):

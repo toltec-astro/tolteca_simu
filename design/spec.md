@@ -208,6 +208,8 @@ decision.
   proxy, under a configurable URL prefix.
 - Production runs the application under gunicorn. Development and debugging run
   Dash's own server directly.
+- The server prepares the time-dependent data it needs when it starts, so that
+  the first observer's request does not wait for them.
 - Both modes load the same configuration through the `tolteca_simu` command
   line, following the `tolteca_web` pattern.
 - With the Firefly backend, browsers must reach a Firefly server, configured
