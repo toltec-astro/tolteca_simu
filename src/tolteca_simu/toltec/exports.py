@@ -207,7 +207,8 @@ def make_coverage_hdulist(result: ToltecPlanningResult, unit: str) -> fits.HDULi
         (
             "MEANALT",
             f"{alt_mean.to_value(u.deg):f}",
-            "Mean altitude of the target during observation (deg)",
+            # v1's comment overflowed the 80-character card and was truncated.
+            "Mean target altitude during observation (deg)",
         )
     )
     if unit == "depth":

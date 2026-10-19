@@ -16,7 +16,7 @@ PROFILE = Path(str(files("tolteca_simu"))) / "data/location/run/tolteca_simu.def
 def test_default_profile_files() -> None:
     assert (PROFILE / "justfile").is_file()
     recipes = (PROFILE / "just.d/00_default.just").read_text()
-    for recipe in ("obs_planner", "obs_planner_serve", "show_config"):
+    for recipe in ("obs_planner", "obs_planner_serve", "show_config", "firefly"):
         assert f"\n{recipe} *ARGS:" in recipes
 
 
@@ -24,6 +24,8 @@ def test_default_profile_config_validates(cal_data_path: Path) -> None:
     config = cast("dict[str, Any]", yaml_load(PROFILE / "config.d/00_default.yaml"))
     # The profile names the store relative to the location root.
     assert config["simu"]["obs_planner"]["cal_data_path"] == "src/tolteca_cal_data"
+    # The views use Aladin Lite unless the profile selects Firefly.
+    assert "viewer" not in config["simu"]["obs_planner"]
     config["simu"]["obs_planner"]["cal_data_path"] = str(cal_data_path)
     planner = Simu(RuntimeContext(config)).config.obs_planner
     assert planner.server.port == 8054

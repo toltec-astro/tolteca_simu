@@ -4,6 +4,9 @@ Reference: v1 obs_planner @ 639b8a1 results table (``proj_*`` columns) and LMT
 OT scripts, recorded on unity-toltec4 (see the file's provenance fields).
 """
 
+import base64
+import gzip
+import io
 import json
 import re
 from datetime import UTC, datetime
@@ -32,6 +35,7 @@ from tolteca_simu.toltec.exports import (
 from tolteca_simu.toltec.planning import ToltecPlanner
 from tolteca_simu.toltec.settings import ToltecSettings
 from tolteca_simu.toltec.time_cost import get_time_cost
+from tolteca_simu.web.toltec_obs_planner.exports import make_downloads
 
 REFERENCE = json.loads(
     (Path(__file__).parent / "data" / "v1_toltec_reference.json").read_text()
@@ -211,3 +215,31 @@ def test_reading_a_table_without_description_fails() -> None:
         read_results_metadata(
             "# %ECSV 1.0\n# ---\n# datatype:\n# - {name: a, datatype: int64}\na\n1\n"
         )
+
+
+@pytest.mark.parametrize("unit", ["depth", "time"])
+def test_downloads_are_the_result_files(case: tuple, unit: str) -> None:
+    _, description, result, time_cost = case
+    created_at = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    downloads = make_downloads(
+        description,
+        result,
+        time_cost,
+        apt_path=APT,
+        coverage_unit=unit,
+        created_at=created_at,
+    )
+    buffer = io.BytesIO()
+    make_coverage_hdulist(result, unit).writeto(buffer)
+    coverage = downloads["coverage"]
+    fits_bytes = gzip.decompress(base64.b64decode(coverage["content_gzip"]))
+    assert fits_bytes == buffer.getvalue()
+    assert coverage["filename"] == f"obsplanner_toltec_{result.array_name}_cov.fits"
+    table = make_results_table(
+        description, result, time_cost, APT, created_at=created_at
+    )
+    assert downloads["results"]["content"] == write_results_ecsv(table)
+    assert downloads["lmtot"]["content"] == make_lmtot_script(
+        description, author="obs_planner_simu", created_at=created_at
+    )
+    assert downloads["lmtot"]["filename"] == "target_09h55m52.4s-+69d40m47s.lmtot"

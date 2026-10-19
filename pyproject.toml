@@ -83,8 +83,9 @@ docs = [
 
 
 [tool.setuptools.package-data]
-# Mapping presets and the run profile for deployment locations.
-tolteca_simu = ["data/**/*"]
+# Mapping presets, the run profile for deployment locations, and the planner's
+# browser scripts.
+tolteca_simu = ["data/**/*", "web/toltec_obs_planner/assets/*"]
 
 
 [tool.setuptools_scm]

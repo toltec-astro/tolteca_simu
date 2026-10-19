@@ -1,5 +1,7 @@
 """Simulation settings under the ``simu`` root key."""
 
+from typing import Annotated, Literal
+
 import astropy.units as u
 from pydantic import ConfigDict, Field
 from tollan.config import FrozenBaseModel
@@ -16,11 +18,14 @@ from tolteca_simu.planning.presets import get_default_presets_path
 from tolteca_simu.toltec.info import ToltecArrayName
 
 __all__ = [
+    "AladinLiteViewerConfig",
+    "FireflyViewerConfig",
     "LmtPlannerConfig",
     "ObsPlannerConfig",
     "ObsPlannerServerConfig",
     "SimuConfig",
     "ToltecPlannerConfig",
+    "ViewerConfig",
 ]
 
 # Production planner settings (unity-toltec4, revision 20250303.0).
@@ -30,6 +35,33 @@ _TOLTEC_DET_NOISE_FACTORS: dict[LmtAtmModelName, dict[ToltecArrayName, float]] =
     "am_q50": {"a1100": 2.19, "a1400": 2.19, "a2000": 2.19},
     "am_q75": {"a1100": 2.34, "a1400": 2.34, "a2000": 2.34},
 }
+
+
+class AladinLiteViewerConfig(FrozenBaseModel):
+    """Views drawn by Aladin Lite in the page; nothing else to run."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["aladin_lite"] = Field(
+        default="aladin_lite", description="Viewer backend."
+    )
+
+
+class FireflyViewerConfig(FrozenBaseModel):
+    """Views drawn by a Firefly server."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["firefly"] = Field(description="Viewer backend.")
+    url: str = Field(
+        pattern=r"^(https?://[^/\s]+)?/(\S+/)?$",
+        description="Base URL of the Firefly server, as browsers reach it, such "
+        "as '/firefly/' behind the planner's reverse proxy.",
+    )
+
+
+type ViewerConfig = Annotated[
+    AladinLiteViewerConfig | FireflyViewerConfig, Field(discriminator="kind")
+]
+"""Viewer backend of the sky and coverage views, chosen by its ``kind``."""
 
 
 class ObsPlannerServerConfig(FrozenBaseModel):
@@ -105,6 +137,11 @@ class ObsPlannerConfig(FrozenBaseModel):
     )
     cal_data_path: AbsDirectoryPath = Field(
         description="Root of the calibration data store."
+    )
+    viewer: ViewerConfig = Field(
+        default_factory=AladinLiteViewerConfig,
+        description="Viewer backend of the sky and coverage views: Aladin Lite "
+        "(the default; nothing else to run) or a Firefly server.",
     )
     lmt: LmtPlannerConfig = Field(
         default_factory=LmtPlannerConfig, description="LMT settings."

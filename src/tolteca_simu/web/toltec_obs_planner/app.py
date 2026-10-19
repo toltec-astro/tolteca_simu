@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import base64
-import io
-import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -15,28 +13,25 @@ from dash_component_template import Template
 from pydantic import ValidationError
 
 from tolteca_simu.cal_data import CalDataStore
+from tolteca_simu.config import FireflyViewerConfig
 from tolteca_simu.core import Simu
 from tolteca_simu.lmt import get_lmt_observer
-from tolteca_simu.lmtot import make_lmtot_script
 from tolteca_simu.planning import MappingPresets, ObservationDescription, get_trajectory
 from tolteca_simu.toltec import TOLTEC_ARRAYS
-from tolteca_simu.toltec.exports import (
-    make_coverage_hdulist,
-    make_results_table,
-    read_results_metadata,
-    write_results_ecsv,
-)
+from tolteca_simu.toltec.exports import read_results_metadata
 from tolteca_simu.toltec.planning import ToltecPlanner
 from tolteca_simu.toltec.time_cost import get_time_cost
 
-from .exports import ExportsPanel
+from .exports import ExportsPanel, make_downloads
 from .instrument import ToltecPanel
 from .mapping import MappingPanel
-from .results import ToltecResultsPanel, make_coverage_figure, make_sensitivity_tabs
+from .results import ToltecResultsPanel, make_sensitivity_tabs
 from .site import LmtPanel
-from .sky import SkyViewPanel, make_sky_view
 from .target import TargetPanel
 from .trajectory import TrajectoryPanel, empty_figure, make_trajectory_figures
+from .views import make_view_description
+from .views_aladin import AladinViewsPanel
+from .views_firefly import FireflyViewsPanel
 from .visibility import VisibilityPanel
 
 if TYPE_CHECKING:
@@ -47,10 +42,9 @@ if TYPE_CHECKING:
     from tolteca_simu.toltec.planning import ToltecPlanningResult
     from tolteca_simu.toltec.time_cost import TimeCost
 
-__all__ = ["ObsPlanner", "create_app"]
+    from .views import ViewsPanel
 
-# The job key of planner simulations, recorded as the OT script author (v1).
-_JOB_KEY = "obs_planner_simu"
+__all__ = ["ObsPlanner", "create_app"]
 
 
 def _now() -> datetime:
@@ -72,10 +66,19 @@ def create_app(runtime: RuntimeContext) -> Dash:
     """
     config = Simu(runtime).config.obs_planner
     planner = ObsPlanner(config)
+    # The page loads the scripts of its viewer backend only.
+    if isinstance(config.viewer, FireflyViewerConfig):
+        external_scripts = [f"{config.viewer.url}firefly_loader.js"]
+        assets_ignore = r"aladin_views\.js"
+    else:
+        external_scripts = []
+        assets_ignore = r"firefly_views\.js"
     app = Dash(
         __name__,
         title=config.title,
         url_base_pathname=config.server.url_base_pathname,
+        external_scripts=external_scripts,
+        assets_ignore=assets_ignore,
     )
     app.layout = planner.layout()
     planner.register_callbacks(app)
@@ -86,12 +89,15 @@ class ObsPlanner(Template):
     """The planner page: description controls beside the planning results.
 
     The page keeps the observation description, serialized as JSON, in its
-    `description` store; every result is computed from it.
+    `description` store; every result is computed from it. The files of each
+    result are made once and kept in its `downloads` store, for the downloads
+    and the coverage view.
 
     Parameters
     ----------
     config : tolteca_simu.config.ObsPlannerConfig
-        Title, presets, limits, calibration data, and LMT and TolTEC settings.
+        Title, presets, limits, calibration data, viewer backend, and LMT and
+        TolTEC settings.
     """
 
     def __init__(self, config: ObsPlannerConfig) -> None:
@@ -113,6 +119,7 @@ class ObsPlanner(Template):
         header.child[dmc.Text](config.subtitle, size="sm", c="dimmed")
         main = shell.child[dmc.AppShellMain]()
         self.description = main.child[dcc.Store](data=None)
+        self.downloads = main.child[dcc.Store](data=None)
         grid = main.child[dmc.Grid](gutter="md")
         controls = grid.child[dmc.GridCol](span={"base": 12, "md": 4, "xl": 3})
         results = grid.child[dmc.GridCol](span={"base": 12, "md": 8, "xl": 9})
@@ -134,9 +141,14 @@ class ObsPlanner(Template):
             )
         )
         self.trajectory = results.child(TrajectoryPanel())
-        self.sky = results.child(SkyViewPanel())
+        views: ViewsPanel
+        if isinstance(config.viewer, FireflyViewerConfig):
+            views = FireflyViewsPanel(config.viewer.url, downloads=self.downloads)
+        else:
+            views = AladinViewsPanel(downloads=self.downloads)
+        self.views = results.child(views)
         self.toltec_results = results.child(ToltecResultsPanel())
-        self.exports = results.child(ExportsPanel())
+        self.exports = results.child(ExportsPanel(downloads=self.downloads))
 
     def _compute(
         self, description: ObservationDescription
@@ -188,12 +200,10 @@ class ObsPlanner(Template):
 
         @app.callback(
             [Output(graph(), "figure") for graph in graphs.values()],
-            Output(results.coverage(), "figure"),
             Output(results.sensitivity(), "children"),
             Output(results.status(), "children"),
-            Output(self.sky.viewer(), "target"),
-            Output(self.sky.viewer(), "fov"),
-            Output(self.sky.viewer(), "layers"),
+            Output(self.views.views(), "data"),
+            Output(self.downloads(), "data"),
             Input(self.description(), "data"),
             Input(self.instrument.coverage_unit(), "value"),
             prevent_initial_call=True,
@@ -202,12 +212,10 @@ class ObsPlanner(Template):
             if data is None:
                 return [
                     *(empty_figure() for _ in graphs),
-                    empty_figure(),
                     None,
                     "Complete the observation description.",
-                    dash.no_update,
-                    dash.no_update,
-                    [],
+                    None,
+                    None,
                 ]
             description = ObservationDescription.model_validate(data)
             trajectory, result, time_cost = self._compute(description)
@@ -223,73 +231,27 @@ class ObsPlanner(Template):
                 f"{result.n_passes} pass(es) reach the desired depth "
                 f"of {description.desired_sens}."
             )
+            downloads = make_downloads(
+                description,
+                result,
+                time_cost,
+                apt_path=self._apt_path,
+                coverage_unit=coverage_unit,
+                created_at=_now(),
+            )
             return [
                 *(figures[key] for key in graphs),
-                make_coverage_figure(result, coverage_unit),
                 make_sensitivity_tabs(result, time_cost),
                 status,
-                *make_sky_view(description.target, trajectory, result, coverage_unit),
+                self.views.make_views(
+                    make_view_description(
+                        description.target, trajectory, result, coverage_unit
+                    )
+                ),
+                downloads,
             ]
 
-        self._setup_download_callbacks(app)
         self._setup_upload_callback(app)
-
-    def _setup_download_callbacks(self, app: Dash) -> None:
-        exports = self.exports
-
-        @app.callback(
-            Output(exports.lmtot_download(), "data"),
-            Input(exports.lmtot_button(), "n_clicks"),
-            State(self.description(), "data"),
-            prevent_initial_call=True,
-        )
-        def _download_lmtot(_n_clicks: int, data: dict | None) -> dict | None:
-            if data is None:
-                return None
-            description = ObservationDescription.model_validate(data)
-            name = re.sub(r"\s+", "-", f"target_{description.target_name}")
-            return dcc.send_string(
-                make_lmtot_script(description, author=_JOB_KEY, created_at=_now()),
-                f"{name}.lmtot",
-            )
-
-        @app.callback(
-            Output(exports.results_download(), "data"),
-            Input(exports.results_button(), "n_clicks"),
-            State(self.description(), "data"),
-            prevent_initial_call=True,
-        )
-        def _download_results(_n_clicks: int, data: dict | None) -> dict | None:
-            if data is None:
-                return None
-            description = ObservationDescription.model_validate(data)
-            _, result, time_cost = self._compute(description)
-            table = make_results_table(
-                description, result, time_cost, self._apt_path, created_at=_now()
-            )
-            return dcc.send_string(
-                write_results_ecsv(table), "toltec_obs_planner_results.ecsv"
-            )
-
-        @app.callback(
-            Output(exports.coverage_download(), "data"),
-            Input(exports.coverage_button(), "n_clicks"),
-            State(self.description(), "data"),
-            State(self.instrument.coverage_unit(), "value"),
-            prevent_initial_call=True,
-        )
-        def _download_coverage(
-            _n_clicks: int, data: dict | None, coverage_unit: str
-        ) -> dict | None:
-            if data is None:
-                return None
-            description = ObservationDescription.model_validate(data)
-            _, result, _ = self._compute(description)
-            buffer = io.BytesIO()
-            make_coverage_hdulist(result, coverage_unit).writeto(buffer)
-            return dcc.send_bytes(
-                buffer.getvalue(), f"obsplanner_toltec_{result.array_name}_cov.fits"
-            )
 
     def _setup_upload_callback(self, app: Dash) -> None:
         exports = self.exports

@@ -2,6 +2,9 @@
 simu:
   obs_planner:
     cal_data_path: src/tolteca_cal_data
+    # The views use Aladin Lite. To use the Firefly server of the `firefly`
+    # recipe instead:
+    # viewer: {kind: firefly, url: "http://127.0.0.1:8090/firefly/"}
     server:
       host: 127.0.0.1
       port: 8054

@@ -17,3 +17,7 @@ obs_planner_serve *ARGS:
 # Inspect the resolved planner settings.
 show_config *ARGS:
     cd "{{ROOT}}" && uv run --project "{{ROOT}}" tolteca_simu obs_planner show_config --config_paths "{{SVC_DIR}}/config.d" "$@"
+
+# Run the Firefly server that draws the planner's sky and coverage views.
+firefly *ARGS:
+    docker run --rm --name tolteca_simu_firefly -p 127.0.0.1:8090:8080 -m 4g "$@" ipac/firefly:2026.3.1

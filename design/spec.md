@@ -178,10 +178,16 @@ decision.
 - A user can export the current observation description and its observing
   script, and reload a description to restore the same results.
 - Results update interactively as the observer edits the description.
-- A sky view shows the planning results over a sky survey: the coverage map, the
-  trajectory, the coverage outline, and the instrument's detectors. It is drawn
-  by Aladin Lite through `dash_aladin_lite`, a general-purpose Dash component
-  package outside TolTECA. A coverage plot gives the map values.
+- Two views show the planning results: a sky view with the trajectory, the
+  coverage outline, and the instrument's detectors over a HiPS survey, and a
+  coverage view of the coverage map alone with image display controls.
+- A deployment selects the viewer backend that draws them: Aladin Lite in the
+  page, which needs nothing beyond the Python install, so that users can run
+  their own planner locally with their own presets and settings; or a Firefly
+  server.
+- Each planning result produces its downloadable files once (observing script,
+  results table, coverage FITS); the downloads and the coverage view use those
+  files without recomputing the result.
 - The application does not produce synthetic acquisitions.
 
 ### Deployment
@@ -192,6 +198,9 @@ decision.
   Dash's own server directly.
 - Both modes load the same configuration through the `tolteca_simu` command
   line, following the `tolteca_web` pattern.
+- With the Firefly backend, browsers must reach a Firefly server, configured
+  with the planner; behind the reverse proxy it is served on the planner's
+  origin. The package's run profile can start one for a location.
 
 ## Synthetic observations (later scope)
 
