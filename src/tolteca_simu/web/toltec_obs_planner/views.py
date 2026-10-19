@@ -1,10 +1,12 @@
-"""Sky and coverage views of a planning result.
+"""Sky and coverage views of the planner.
 
-The sky view shows the trajectory, the coverage outline and the detectors over
-a HiPS survey; the coverage view shows the coverage FITS file of the result,
-the same file as its download. A viewer backend draws both: Aladin Lite
-(`.views_aladin`) or a Firefly server (`.views_firefly`). This module gives
-them the backend-independent view description and the panel layout.
+As in v1, the sky view shows a HiPS survey centered on the current target from
+page load on; each planning result sets its field of view and its layers: the
+trajectory, the detectors, the array's field of view and the coverage outline.
+The coverage view shows the coverage FITS file of the result, the same file as
+its download. A viewer backend draws both: Aladin Lite (`.views_aladin`) or a
+Firefly server (`.views_firefly`). This module gives them the
+backend-independent view description and the panel layout.
 """
 
 from __future__ import annotations
@@ -27,7 +29,12 @@ if TYPE_CHECKING:
     from tolteca_simu.planning import Trajectory
     from tolteca_simu.toltec.planning import ToltecPlanningResult
 
-__all__ = ["ViewsPanel", "make_view_description"]
+__all__ = [
+    "SKY_FOV_DEFAULT",
+    "SKY_TARGET_DEFAULT",
+    "ViewsPanel",
+    "make_view_description",
+]
 
 _TRAJECTORY_POINTS_MAX = 2000
 _OUTLINE_POINTS_MAX = 500
@@ -35,6 +42,10 @@ _OUTLINE_POINTS_MAX = 500
 _OUTLINE_FRACTION = 0.1
 # Show the map within this fraction of the view, as v1 did.
 _FOV_FILL = 0.618
+SKY_TARGET_DEFAULT = "M1"
+"""Target of the sky view on page load, as in v1."""
+SKY_FOV_DEFAULT = (10 << u.arcmin).to_value(u.deg)
+"""Field of view of the sky view on page load, in degrees, as in v1."""
 
 
 def _decimate(values: np.ndarray, n_max: int) -> np.ndarray:
@@ -74,11 +85,12 @@ def make_view_description(
     -------
     dict
         ``center`` (RA, Dec in degrees, ICRS) and ``size_deg`` of the views,
-        framing the trajectory and the array; ``sky_title`` and
-        ``coverage_title``; the ``trajectory`` (at most 2000 RA, Dec vertices)
-        and the coverage ``outline`` (vertices of the 10 % coverage contour,
-        empty if there is none); and the ``detectors`` (``positions`` and the
-        beam ``radius_deg``).
+        framing the trajectory and the array; ``array_name_long``,
+        ``sky_title`` and ``coverage_title``; the ``trajectory`` (at most 2000
+        RA, Dec vertices); the ``fov_outline`` (vertices of the designed
+        array's outline); the coverage ``outline`` (vertices of the 10 %
+        coverage contour, empty if there is none); and the ``detectors``
+        (``positions`` and the beam ``radius_deg``).
     """
     # Plain ICRS coordinates; the transformed ones keep their AltAz attributes.
     icrs = SkyCoord(trajectory.coords_icrs.ra, trajectory.coords_icrs.dec)
@@ -98,11 +110,15 @@ def make_view_description(
     return {
         "center": [float(target.ra.degree), float(target.dec.degree)],
         "size_deg": float(extent / _FOV_FILL),
+        "array_name_long": array.name_long,
         "sky_title": f"Trajectory and detectors: {array.name_long}",
         "coverage_title": f"Coverage ({unit_label}): {array.name_long}",
         "trajectory": _decimate(
             np.column_stack([icrs.ra.degree, icrs.dec.degree]),
             _TRAJECTORY_POINTS_MAX,
+        ).tolist(),
+        "fov_outline": np.column_stack(
+            [result.fov_outline.ra.degree, result.fov_outline.dec.degree]
         ).tolist(),
         "outline": _outline(result),
         "detectors": {
@@ -119,10 +135,12 @@ class ViewsPanel(Template):
 
     A backend creates its sky view in ``sky_parent`` and its coverage view in
     ``coverage_parent``; the panel itself holds the status line and the data
-    of the views.
+    of the views. The sky view centers on the target in ``sky_target``.
 
     Parameters
     ----------
+    sky_target : dash_component_template.LazyComponent
+        Store holding the RA and Dec of the target, in degrees, or None.
     downloads : dash_component_template.LazyComponent
         Store holding the files of the current result; the coverage view shows
         its coverage FITS file.
@@ -134,11 +152,13 @@ class ViewsPanel(Template):
 
     def __init__(
         self,
+        sky_target: LazyComponent,
         downloads: LazyComponent,
         sky_parent: LazyComponent,
         coverage_parent: LazyComponent,
     ) -> None:
         super().__init__()
+        self._sky_target = sky_target
         self._downloads = downloads
         self._sky_parent = sky_parent
         self._coverage_parent = coverage_parent

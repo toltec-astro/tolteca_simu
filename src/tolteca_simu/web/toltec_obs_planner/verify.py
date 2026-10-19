@@ -38,7 +38,7 @@ class VerifyPanel(Template):
         self._t_exp_max = t_exp_max
         self._apt_path = apt_path
         stack = self.child[dmc.Stack](gap="md")
-        upload_card = stack.child[dmc.Card](withBorder=True, padding="md")
+        upload_card = stack.child[dmc.Card](withBorder=True, padding="sm")
         upload_stack = upload_card.child[dmc.Stack](gap="sm")
         upload_stack.child[dmc.Title]("Upload result to verify", order=5)
         self._upload = upload_stack.child[dcc.Upload](
@@ -52,15 +52,15 @@ class VerifyPanel(Template):
                 "fontSize": "12px",
             },
         )
-        details_card = stack.child[dmc.Card](withBorder=True, padding="md")
+        details_card = stack.child[dmc.Card](withBorder=True, padding="sm")
         details_stack = details_card.child[dmc.Stack](gap="sm")
         details_stack.child[dmc.Title]("Details", order=5)
         self._details = details_stack.child[dmc.Text](
             "No file loaded.", size="xs", c="dimmed"
         )
-        self.execute = details_stack.child[dmc.Button](
-            "Execute", size="xs", disabled=True
-        )
+        self.execute = details_stack.child[dmc.Group](justify="flex-end").child[
+            dmc.Button
+        ]("Execute", size="xs", color="red", disabled=True)
         self.description = stack.child[dcc.Store](data=None)
 
     def setup_callbacks(self, app: Dash) -> None:

@@ -1,7 +1,8 @@
 // Sky and coverage views of the TolTEC observation planner, drawn by Aladin
 // Lite (dash_aladin_lite).
 //
-// The sky view takes its layers from the views store. The coverage view shows
+// The sky view takes its field of view and layers from the views store; its
+// center follows the target separately, as in v1. The coverage view shows
 // the result's coverage FITS file, which the page keeps gzip compressed for its
 // download: it is decompressed here and given to Aladin Lite as a blob URL.
 
@@ -16,7 +17,7 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
       const noUpdate = window.dash_clientside.no_update;
       if (!views || !downloads) {
         return [
-          ...Array(6).fill(noUpdate),
+          ...Array(5).fill(noUpdate),
           "Press Execute to plan the observation.",
         ];
       }
@@ -43,7 +44,6 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
       };
       const { sky, coverage } = views;
       return [
-        sky.target,
         sky.fov,
         sky.layers,
         coverage.target,

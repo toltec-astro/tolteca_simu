@@ -10,7 +10,14 @@ import numpy as np
 
 from tolteca_simu.mapping import RasterPattern
 
-from .coverage import CoverageMap, Footprint, get_coverage_map, get_footprint
+from .coverage import (
+    CoverageMap,
+    Footprint,
+    get_array_outline,
+    get_coverage_map,
+    get_footprint,
+    place_on_sky,
+)
 from .info import TOLTEC_ARRAYS, ToltecArrayName
 from .sensitivity import (
     POLARIZED_NOISE_FACTOR,
@@ -93,6 +100,8 @@ class ToltecPlanningResult:
         Whether depths are for polarized intensity (Stokes Q/U).
     footprint : tolteca_simu.toltec.Footprint
         The array's detectors on the sky.
+    fov_outline : astropy.coordinates.SkyCoord
+        Outline of the designed array, placed on the sky as the footprint.
     coverage : tolteca_simu.toltec.CoverageMap
         Coverage of the array, in seconds per pixel.
     depth : tolteca_simu.toltec.MapDepth
@@ -113,6 +122,7 @@ class ToltecPlanningResult:
     array_name: ToltecArrayName
     polarized: bool
     footprint: Footprint
+    fov_outline: SkyCoord
     coverage: CoverageMap
     depth: MapDepth
     t_exp: u.Quantity
@@ -131,6 +141,7 @@ def get_toltec_planning_result(  # noqa: PLR0913
     t_exp: u.Quantity,
     apt: QTable,
     n_dets_designed: dict[ToltecArrayName, int],
+    array_outline: tuple[u.Quantity, u.Quantity],
     loading_models: dict[ToltecArrayName, ToltecArrayLoadingModel],
     array_name: ToltecArrayName,
     polarized: bool,
@@ -157,6 +168,9 @@ def get_toltec_planning_result(  # noqa: PLR0913
         Array property table of the enabled detectors.
     n_dets_designed : dict of int
         Designed detector count of each array.
+    array_outline : tuple of astropy.units.Quantity
+        Outline of the designed array as offsets from the boresight, from
+        `tolteca_simu.toltec.get_array_outline`.
     loading_models : dict of ToltecArrayLoadingModel
         Loading model of each array, for the observing conditions.
     array_name : str
@@ -173,6 +187,7 @@ def get_toltec_planning_result(  # noqa: PLR0913
     """
     array = TOLTEC_ARRAYS[array_name]
     footprint = get_footprint(apt, array, trajectory, target, observer)
+    fov_outline = place_on_sky(*array_outline, trajectory, target, observer)
     coverage = get_coverage_map(trajectory, footprint, array)
     alt_mean = trajectory.target_altaz.alt.mean()
     if isinstance(pattern, RasterPattern):
@@ -206,6 +221,7 @@ def get_toltec_planning_result(  # noqa: PLR0913
         array_name=array_name,
         polarized=polarized,
         footprint=footprint,
+        fov_outline=fov_outline,
         coverage=coverage,
         depth=depth,
         t_exp=t_exp,
@@ -243,8 +259,13 @@ class ToltecPlanner:
     ) -> None:
         self._store = store
         self.apt = store.get_toltec_apt(apt_path)
-        self.n_dets_designed = {
-            name: len(store.get_toltec_apt_designed(name)) for name in TOLTEC_ARRAYS
+        apts_designed = {
+            name: store.get_toltec_apt_designed(name) for name in TOLTEC_ARRAYS
+        }
+        self.n_dets_designed = {name: len(t) for name, t in apts_designed.items()}
+        self.array_outlines = {
+            name: get_array_outline(apts_designed[name], array)
+            for name, array in TOLTEC_ARRAYS.items()
         }
         self.tel_surface_rms = tel_surface_rms
         self.det_noise_factors = det_noise_factors
@@ -312,6 +333,7 @@ class ToltecPlanner:
             t_exp=description.get_t_exp(),
             apt=self.apt,
             n_dets_designed=self.n_dets_designed,
+            array_outline=self.array_outlines[instrument.array_name],
             loading_models=self.get_loading_models(description.atm_model_name),
             array_name=instrument.array_name,
             polarized=instrument.polarized,

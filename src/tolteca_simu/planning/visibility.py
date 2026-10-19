@@ -4,11 +4,22 @@ from dataclasses import dataclass
 
 import astropy.units as u
 import numpy as np
-from astroplan import Observer
+from astroplan import (
+    AltitudeConstraint,
+    AtNightConstraint,
+    FixedTarget,
+    Observer,
+    observability_table,
+)
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
-__all__ = ["TargetVisibility", "get_target_visibility"]
+__all__ = [
+    "TargetUptime",
+    "TargetVisibility",
+    "get_target_uptime",
+    "get_target_visibility",
+]
 
 
 @dataclass(frozen=True)
@@ -28,10 +39,6 @@ class TargetVisibility:
         First sunset after the day starts.
     t0 : astropy.time.Time
         The observation start time.
-    altaz_t0 : astropy.coordinates.SkyCoord
-        Target azimuth and altitude at the start time.
-    is_night_t0 : bool
-        Whether the Sun is below the horizon at the start time.
     """
 
     time: Time
@@ -39,8 +46,6 @@ class TargetVisibility:
     sun_rise_time: Time
     sun_set_time: Time
     t0: Time
-    altaz_t0: SkyCoord
-    is_night_t0: bool
 
 
 def get_target_visibility(
@@ -60,8 +65,7 @@ def get_target_visibility(
     Returns
     -------
     TargetVisibility
-        Altitudes on a one-minute grid, the sunrise and sunset times, and the
-        target position at the start time.
+        Altitudes on a one-minute grid and the sunrise and sunset times.
     """
     day_start = Time(int(t0.utc.mjd), format="mjd", scale="utc")
     time = day_start + (np.arange(0, 24 * 60 + 1) << u.min)
@@ -72,6 +76,64 @@ def get_target_visibility(
         sun_rise_time=observer.sun_rise_time(day_start, which="next"),
         sun_set_time=observer.sun_set_time(day_start, which="next"),
         t0=t0,
-        altaz_t0=target.transform_to(observer.altaz(time=t0)),
-        is_night_t0=bool(observer.is_night(t0)),
+    )
+
+
+@dataclass(frozen=True)
+class TargetUptime:
+    """Time a target is observable on a UT day.
+
+    Attributes
+    ----------
+    uptime : astropy.units.Quantity
+        Time at night with the target above the lowest usable elevation,
+        sampled every 30 minutes.
+    transit_time : astropy.time.Time
+        Meridian transit nearest to the start of the day.
+    """
+
+    uptime: u.Quantity
+    transit_time: Time
+
+
+def get_target_uptime(
+    target: SkyCoord, date: Time, observer: Observer, alt_min: u.Quantity
+) -> TargetUptime | None:
+    """Return how long a target is observable on a UT day.
+
+    The day is sampled every 30 minutes from ``date``; a sample is observable
+    at night (Sun below the horizon) with the target at or above ``alt_min``.
+
+    Parameters
+    ----------
+    target : astropy.coordinates.SkyCoord
+        The target coordinate.
+    date : astropy.time.Time
+        Start of the UT day.
+    observer : astroplan.Observer
+        The observing site.
+    alt_min : astropy.units.Quantity
+        Lowest usable elevation.
+
+    Returns
+    -------
+    TargetUptime or None
+        The up-time and the transit, or None if the target is never
+        observable that day.
+    """
+    constraints = [AltitudeConstraint(alt_min, 91 * u.deg), AtNightConstraint()]
+    fixed_target = FixedTarget(coord=target)
+    summary = observability_table(
+        constraints,
+        observer,
+        [fixed_target],
+        times=date + (np.arange(0, 24, 0.5) << u.h),
+    )
+    if not summary["ever observable"][0]:
+        return None
+    return TargetUptime(
+        uptime=(summary["fraction of time observable"][0] * 24) << u.h,
+        transit_time=observer.target_meridian_transit_time(
+            date, fixed_target, n_grid_points=48
+        ),
     )

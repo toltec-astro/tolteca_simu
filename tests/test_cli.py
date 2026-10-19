@@ -85,11 +85,11 @@ def test_planner_defaults(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("viewer", "scripts", "n_callbacks"),
     [
-        (None, [], 20),
+        (None, [], 26),
         (
             {"kind": "firefly", "url": FIREFLY_URL},
             [f"{FIREFLY_URL}firefly_loader.js"],
-            20,
+            26,
         ),
     ],
 )

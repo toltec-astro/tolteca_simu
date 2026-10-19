@@ -1,10 +1,11 @@
 // Sky and coverage views of the TolTEC observation planner, drawn by Firefly.
 //
 // The page loads firefly_loader.js from the Firefly server. Each view is a
-// Firefly viewer with one plot. For each planning result, this callback shows
-// the HiPS survey with the trajectory, outline and detector regions, and
-// uploads the result's coverage FITS file (gzip compressed, as the page keeps
-// it for its download) to show it in the coverage view. Both views are drawn
+// Firefly viewer with one plot. As in v1, the sky view is one HiPS plot that
+// follows the target; each planning result replaces its region layers and sets
+// its field of view, keeping the user's survey and display settings. The
+// result's coverage FITS file (gzip compressed, as the page keeps it for its
+// download) is uploaded and shown in the coverage view. Both views are drawn
 // at the same time.
 
 // Firefly calls onFireflyLoaded once its API is ready.
@@ -81,11 +82,13 @@ const HIPS_OVERLAYS = [
   "MOC_PLOT_TYPE",
 ].join(";");
 
-// The viewers, and the plots and region layers drawn for the current result.
+// The viewers, the plots, the sky center, and the region layers drawn.
 const drawn = {
   viewers: {},
   count: 0,
   sky: null,
+  skyReady: null,
+  skyCenter: null,
   skyKey: null,
   coverage: null,
   layers: [],
@@ -104,8 +107,10 @@ const ensureViewer = (firefly, viewerId, view) => {
     drawn[view] = null;
   }
   if (view === "sky") {
+    drawn.skyReady = null;
     drawn.skyKey = null;
   }
+  // The new viewer draws the view again.
   const { NewPlotMode, IMAGE } = firefly.util.image;
   const newPlots = NewPlotMode.create_replace.key;
   firefly.action.dispatchAddViewer(viewerId, newPlots, IMAGE);
@@ -123,7 +128,7 @@ const plotRequest = (firefly, params) =>
     GroupLocked: false,
   });
 
-const removePlot = (firefly, plotId) => {
+const removeLayers = (firefly, plotId) => {
   for (const [layerId, layerPlotId] of drawn.layers) {
     if (layerPlotId === plotId) {
       firefly.action.dispatchDeleteRegionLayer(layerId, plotId);
@@ -132,20 +137,24 @@ const removePlot = (firefly, plotId) => {
   drawn.layers = drawn.layers.filter(
     ([, layerPlotId]) => layerPlotId !== plotId,
   );
+};
+
+const removePlot = (firefly, plotId) => {
+  removeLayers(firefly, plotId);
   firefly.action.dispatchDeletePlotView({ plotId });
 };
 
-const addRegions = (firefly, plotId, name, title, regions, visible = true) => {
-  const layerId = `${name}-${plotId}`;
+const addLayer = (firefly, plotId, layer) => {
+  const layerId = `${layer.id}-${plotId}`;
   firefly.action.dispatchCreateRegionLayer(
     layerId,
-    title,
+    layer.title,
     null,
-    regions,
+    layer.regions,
     plotId,
   );
   drawn.layers.push([layerId, plotId]);
-  if (!visible) {
+  if (!layer.visible) {
     firefly.action.dispatchChangeVisibility({
       id: layerId,
       visible: false,
@@ -155,32 +164,66 @@ const addRegions = (firefly, plotId, name, title, regions, visible = true) => {
   }
 };
 
-const drawSky = async (firefly, views, viewerId) => {
-  // A fresh plot id for each result, so that layers never attach to a plot
-  // that is being replaced.
-  const plotId = `toltec-sky-${++drawn.count}`;
-  if (drawn.sky) {
-    removePlot(firefly, drawn.sky);
-  }
-  drawn.sky = plotId;
-  firefly.action.dispatchPlotHiPS({
+// Show a field of view of fovDeg across the width of the plot, as Aladin
+// Lite does.
+const setFov = (firefly, plotId, fovDeg) => {
+  const pv = firefly.util.image
+    .visRoot()
+    .plotViewAry.find((p) => p.plotId === plotId);
+  const plot = pv.plots[0];
+  firefly.action.dispatchZoom({
     plotId,
-    viewerId,
-    wpRequest: plotRequest(firefly, {
-      Type: "HiPS",
-      plotId,
-      hipsRootUrl: views.hips,
-      WorldPt: views.world_pt,
-      SizeInDeg: views.size_deg,
-      Title: views.sky_title,
-      PredefinedOverlayIds: HIPS_OVERLAYS,
-    }),
+    userZoomType: "LEVEL",
+    level: (pv.viewDim.width * plot.projection.pixelScaleDeg) / fovDeg,
+    actionScope: "SINGLE",
   });
-  await waitForPlot(firefly, plotId);
-  const { trajectory, outline, detectors } = views.regions;
-  addRegions(firefly, plotId, "trajectory", "Trajectory", trajectory);
-  addRegions(firefly, plotId, "outline", "Coverage outline", outline);
-  addRegions(firefly, plotId, "detectors", "Detectors", detectors, false);
+};
+
+const worldPt = (firefly, radec) =>
+  firefly.util.image.makeWorldPt(radec[0], radec[1]);
+
+// The sky plot, created at the target on first use; later calls recenter it.
+const centerSky = async (firefly, settings, viewerId, radec) => {
+  if (!drawn.skyReady) {
+    const plotId = `toltec-sky-${++drawn.count}`;
+    drawn.sky = plotId;
+    drawn.skyCenter = radec;
+    firefly.action.dispatchPlotHiPS({
+      plotId,
+      viewerId,
+      wpRequest: plotRequest(firefly, {
+        Type: "HiPS",
+        plotId,
+        hipsRootUrl: settings.hips,
+        WorldPt: `${radec[0]};${radec[1]};EQ_J2000`,
+        Title: "Sky view",
+        PredefinedOverlayIds: HIPS_OVERLAYS,
+      }),
+    });
+    drawn.skyReady = waitForPlot(firefly, plotId).then(() => {
+      setFov(firefly, plotId, settings.fov_default);
+      return plotId;
+    });
+    return drawn.skyReady;
+  }
+  const plotId = await drawn.skyReady;
+  if (JSON.stringify(radec) !== JSON.stringify(drawn.skyCenter)) {
+    drawn.skyCenter = radec;
+    firefly.action.dispatchRecenter({
+      plotId,
+      centerPt: worldPt(firefly, radec),
+    });
+  }
+  return plotId;
+};
+
+const drawSky = async (firefly, views, settings, viewerId, radec) => {
+  const plotId = await centerSky(firefly, settings, viewerId, radec);
+  removeLayers(firefly, plotId);
+  setFov(firefly, plotId, views.size_deg);
+  for (const layer of views.sky_layers) {
+    addLayer(firefly, plotId, layer);
+  }
 };
 
 const drawCoverage = async (firefly, views, upload, viewerId) => {
@@ -201,30 +244,53 @@ const drawCoverage = async (firefly, views, upload, viewerId) => {
     }),
   });
   await waitForPlot(firefly, plotId);
-  addRegions(
-    firefly,
-    plotId,
-    "outline",
-    "Coverage outline",
-    views.regions.outline,
+  for (const layer of views.coverage_layers) {
+    addLayer(firefly, plotId, layer);
+  }
+};
+
+const fireflyApi = (fireflyUrl) => {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`Firefly is not available at ${fireflyUrl}`)),
+      FIREFLY_LOAD_TIMEOUT_MS,
+    ),
   );
+  return Promise.race([window.toltecObsPlannerFirefly, timeout]);
 };
 
 window.dash_clientside = window.dash_clientside || {};
 window.dash_clientside.toltec_obs_planner = Object.assign(
   window.dash_clientside.toltec_obs_planner || {},
   {
+    center_firefly_sky: function (radec, settings, statusId, skyElementId) {
+      if (!radec) {
+        return window.dash_clientside.no_update;
+      }
+      const report = (text) =>
+        window.dash_clientside.set_props(statusId, { children: text });
+      fireflyApi(settings.url)
+        .then((firefly) => {
+          const viewerId = elementId(skyElementId);
+          ensureViewer(firefly, viewerId, "sky");
+          return centerSky(firefly, settings, viewerId, radec);
+        })
+        .catch((error) => report(error.message));
+      return radec;
+    },
     render_firefly_views: function (
       views,
       downloads,
-      fireflyUrl,
+      settings,
+      radec,
       statusId,
       skyElementId,
       coverageElementId,
     ) {
-      if (!views || !downloads) {
+      if (!views || !downloads || !radec) {
         return "Press Execute to plan the observation.";
       }
+      const fireflyUrl = settings.url;
       const report = (text) =>
         window.dash_clientside.set_props(statusId, { children: text });
       // The upload needs only the Firefly server, not its loaded API.
@@ -234,29 +300,19 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
         .then((blob) => uploadFile(fireflyUrl, blob, `${filename}.gz`));
       // Its failure is reported when the coverage view awaits it.
       upload.catch(() => {});
-      const timeout = new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`Firefly is not available at ${fireflyUrl}`)),
-          FIREFLY_LOAD_TIMEOUT_MS,
-        ),
-      );
-      Promise.race([window.toltecObsPlannerFirefly, timeout])
+      fireflyApi(fireflyUrl)
         .then(async (firefly) => {
           const skyViewerId = elementId(skyElementId);
           const coverageViewerId = elementId(coverageElementId);
           ensureViewer(firefly, skyViewerId, "sky");
           ensureViewer(firefly, coverageViewerId, "coverage");
-          // The sky view is kept when only the coverage changes, such as
+          // The sky layers are kept when only the coverage changes, such as
           // when switching its unit.
-          const skyKey = JSON.stringify([
-            views.world_pt,
-            views.size_deg,
-            views.regions,
-          ]);
+          const skyKey = JSON.stringify([views.size_deg, views.sky_layers]);
           const drawing = [];
           if (skyKey !== drawn.skyKey) {
             drawn.skyKey = skyKey;
-            drawing.push(drawSky(firefly, views, skyViewerId));
+            drawing.push(drawSky(firefly, views, settings, skyViewerId, radec));
           }
           drawing.push(drawCoverage(firefly, views, upload, coverageViewerId));
           await Promise.all(drawing);

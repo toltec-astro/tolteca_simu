@@ -24,7 +24,7 @@ from .exports import ExportsPanel, make_downloads
 from .instrument import ToltecPanel
 from .mapping import MappingPanel
 from .results import ToltecResultsPanel, make_sensitivity_tabs
-from .site import LmtPanel
+from .site import LmtInfoPanel, LmtPanel
 from .target import TargetPanel
 from .trajectory import TrajectoryPanel, make_trajectory_figures
 from .verify import VerifyPanel
@@ -34,6 +34,7 @@ from .views_firefly import FireflyViewsPanel
 from .visibility import VisibilityPanel
 
 if TYPE_CHECKING:
+    from dash._callback import NoUpdate
     from tollan.config import RuntimeContext
 
     from tolteca_simu.config import ObsPlannerConfig
@@ -125,23 +126,29 @@ class ObsPlanner(Template):
         main = shell.child[dmc.AppShellMain]()
         self.description = main.child[dcc.Store](data=None)
         self.downloads = main.child[dcc.Store](data=None)
-        grid = main.child[dmc.Grid](gutter="md")
-        controls = grid.child[dmc.GridCol](span={"base": 12, "md": 4, "xl": 3})
-        results = grid.child[dmc.GridCol](span={"base": 12, "md": 8, "xl": 9})
+        # RA and Dec of the target the sky view centers on, in degrees.
+        self.sky_target = main.child[dcc.Store](data=None)
+        # As v1: controls in a fixed-width column, results fill the rest.
+        body = main.child[dmc.Flex](
+            direction={"base": "column", "md": "row"}, gap="md", align="flex-start"
+        )
+        controls = body.child[dmc.Box](w={"base": "100%", "md": 375}, flex="none")
+        results = body.child[dmc.Box](w="100%", miw=0, flex=1)
 
         # Left column: the Plan and Verify tabs.
         tabs = controls.child[dmc.Tabs](value="plan", variant="pills")
         tab_list = tabs.child[dmc.TabsList](mb="sm")
-        tab_list.child[dmc.TabsTab]("Plan", value="plan")
-        tab_list.child[dmc.TabsTab]("Verify", value="verify")
-        plan = tabs.child[dmc.TabsPanel](value="plan").child[dmc.Stack](gap="md")
-        self.target = plan.child(TargetPanel())
+        tab_list.child[dmc.TabsTab]("Plan", value="plan", size="xs")
+        tab_list.child[dmc.TabsTab]("Verify", value="verify", size="xs")
+        plan = tabs.child[dmc.TabsPanel](value="plan").child[dmc.Stack](gap="sm")
+        self.target = plan.child(TargetPanel(target_alt_min=config.target_alt_min))
         self.visibility = self.target.footer.child(
             VisibilityPanel(
                 description=self.description, target_alt_min=config.target_alt_min
             )
         )
-        self.site = plan.child(LmtPanel(config.lmt.tel_surface_rms))
+        self.site_info = self.target.footer.child(LmtInfoPanel())
+        self.site = plan.child(LmtPanel())
         self.instrument = plan.child(ToltecPanel(self._toltec))
         self.mapping = plan.child(
             MappingPanel(
@@ -154,8 +161,9 @@ class ObsPlanner(Template):
         self._details_button = execute_row.child[dmc.Button](
             "Details ...", size="xs", variant="subtle"
         )
+        # As v1, Execute turns red when it can run.
         self._execute = execute_row.child[dmc.Button](
-            "Execute", size="xs", disabled=True
+            "Execute", size="xs", color="red", disabled=True
         )
         self._details = self.mapping.footer.child[dmc.Collapse](opened=False)
         self._details_text = self._details.child[dmc.Code]("N/A", block=True, fz="xs")
@@ -174,6 +182,7 @@ class ObsPlanner(Template):
             "Show trajectories in horizontal coordinates ...",
             size="xs",
             variant="subtle",
+            disabled=True,
         )
         self._trajectory_collapse = results.child[dmc.Collapse](opened=False)
         self.trajectory = self._trajectory_collapse.child(TrajectoryPanel())
@@ -184,13 +193,17 @@ class ObsPlanner(Template):
         if isinstance(config.viewer, FireflyViewerConfig):
             views = FireflyViewsPanel(
                 config.viewer.url,
+                sky_target=self.sky_target,
                 downloads=self.downloads,
                 sky_parent=sky,
                 coverage_parent=coverage,
             )
         else:
             views = AladinViewsPanel(
-                downloads=self.downloads, sky_parent=sky, coverage_parent=coverage
+                sky_target=self.sky_target,
+                downloads=self.downloads,
+                sky_parent=sky,
+                coverage_parent=coverage,
             )
         self.views = views_slot.child(views)
 
@@ -209,6 +222,20 @@ class ObsPlanner(Template):
         result = self._toltec.plan(description, trajectory, observer)
         time_cost = get_time_cost(result.n_passes, result.t_exp, result.t_exp_eff)
         return trajectory, result, time_cost
+
+    def _set_sky_target(
+        self, resolved: dict | None, verify_data: dict | None
+    ) -> list[float] | NoUpdate:
+        # As v1: the sky view follows the target being edited, or the target
+        # of a loaded results file.
+        if ctx.triggered_id == self.verify.description().id:
+            if verify_data is None:
+                return dash.no_update
+            target = ObservationDescription.model_validate(verify_data).target
+            return [target.ra.degree, target.dec.degree]
+        if resolved is None:
+            return dash.no_update
+        return [resolved["ra_deg"], resolved["dec_deg"]]
 
     def setup_callbacks(self, app: Dash) -> None:
         """Assemble the description, and compute its results on Execute.
@@ -238,6 +265,12 @@ class ObsPlanner(Template):
                 target | mapping | site | {"instrument": instrument}
             )
             return description.model_dump(mode="json")
+
+        app.callback(
+            Output(self.sky_target(), "data"),
+            Input(self.target.resolved(), "data"),
+            Input(self.verify.description(), "data"),
+        )(self._set_sky_target)
 
         @app.callback(
             Output(self._execute(), "disabled"),
@@ -270,6 +303,7 @@ class ObsPlanner(Template):
             Output(results.status(), "children"),
             Output(self.views.views(), "data"),
             Output(self.downloads(), "data"),
+            Output(self._trajectory_button(), "disabled"),
             Input(self._execute(), "n_clicks"),
             Input(self.verify.execute(), "n_clicks"),
             State(self.description(), "data"),
@@ -287,7 +321,7 @@ class ObsPlanner(Template):
             verifying = ctx.triggered_id == self.verify.execute().id
             data = verify_data if verifying else plan_data
             if data is None:
-                return [dash.no_update] * (len(graphs) + 4)
+                return [dash.no_update] * (len(graphs) + 5)
             description = ObservationDescription.model_validate(data)
             trajectory, result, time_cost = self._compute(description)
             figures = make_trajectory_figures(
@@ -321,4 +355,5 @@ class ObsPlanner(Template):
                     )
                 ),
                 downloads,
+                False,
             ]

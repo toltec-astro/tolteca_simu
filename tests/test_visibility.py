@@ -11,11 +11,16 @@ from astropy.time import Time
 
 from tolteca_simu.lmt import get_lmt_observer
 from tolteca_simu.planning import get_target_visibility
+from tolteca_simu.web.toltec_obs_planner.target import check_date, check_start_time
 from tolteca_simu.web.toltec_obs_planner.visibility import make_visibility_figure
 
 # Recorded with v1 on unity-toltec4; see the file's provenance fields.
 REFERENCE = json.loads(
     (Path(__file__).parent / "data" / "v1_visibility_reference.json").read_text()
+)
+# v1 ObsPlannerTargetSelect.validate_date and validate_time.
+CHECK_REFERENCE = json.loads(
+    (Path(__file__).parent / "data" / "v1_target_check_reference.json").read_text()
 )
 
 
@@ -49,18 +54,28 @@ def test_sun_times_match_v1(case: dict) -> None:
         assert abs(dt.to_value(u.s)) < 1e-3
 
 
-def test_start_time_position() -> None:
-    # 2026-01-15 06:00 UT is night at the LMT.
-    visibility = get_target_visibility(
-        SkyCoord("09h55m52.4s +69d40m47s"),
-        Time("2026-01-15 06:00:00"),
-        get_lmt_observer(),
+@pytest.mark.parametrize(
+    "case",
+    CHECK_REFERENCE["cases"],
+    ids=lambda c: f"{c['coord']}-{c['date']}-{c['time']}",
+)
+def test_target_checks_match_v1(case: dict) -> None:
+    target = SkyCoord(case["coord"])
+    observer = get_lmt_observer()
+    message, valid = check_date(target, Time(case["date"]), observer, 20 * u.deg)
+    assert (message, valid) == (case["date_feedback"], case["date_type"] == "valid")
+    message, valid = check_start_time(
+        target, Time(f"{case['date']} {case['time']}"), observer, 20 * u.deg
     )
-    assert visibility.is_night_t0
-    i_t0 = 6 * 60
-    assert visibility.altaz_t0.alt.to_value(u.deg) == pytest.approx(
-        visibility.alt[i_t0].to_value(u.deg), abs=1e-9
+    assert valid == (case["time_type"] == "valid")
+    # The v3 text fixes two typos of v1.
+    expected = (
+        case["time_feedback"]
+        .replace("Alt =-", "Alt = -")
+        .replace("Alt =1", "Alt = 1")
+        .replace("to observer", "to observe")
     )
+    assert message == expected
 
 
 def test_figure_marks_interval_and_night() -> None:

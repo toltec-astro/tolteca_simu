@@ -98,10 +98,7 @@ def make_visibility_figure(
 
 
 class VisibilityPanel(Template):
-    """Check of the target at the start time, and its elevation over the day.
-
-    The check shows in the panel; the elevation plot opens in a modal, as in
-    v1.
+    """Plot of the target elevation over the observing day, in a modal.
 
     Parameters
     ----------
@@ -115,14 +112,11 @@ class VisibilityPanel(Template):
         super().__init__()
         self._description = description
         self._target_alt_min = target_alt_min
-        stack = self.child[dmc.Stack](gap="xs")
-        self._status = stack.child[dmc.Text](
-            "Enter a target and an observation time.", size="xs", c="gray"
+        row = self.child[dmc.Group](justify="flex-end")
+        self._plot_button = row.child[dmc.Button](
+            "Plot Alt. vs Time", size="xs", disabled=True
         )
-        self._plot_button = stack.child[dmc.Button](
-            "Plot alt. vs time", size="xs", variant="light", disabled=True
-        )
-        self._modal = stack.child[dmc.Modal](
+        self._modal = row.child[dmc.Modal](
             title="Target altitude", size="xl", opened=False
         )
         self._graph = self._modal.child[dcc.Graph](
@@ -147,20 +141,13 @@ class VisibilityPanel(Template):
 
         @app.callback(
             Output(self._graph(), "figure"),
-            Output(self._status(), "children"),
-            Output(self._status(), "c"),
             Output(self._plot_button(), "disabled"),
             Input(self._description(), "data"),
             prevent_initial_call=True,
         )
-        def _plot(data: dict | None) -> tuple[go.Figure, str, str, bool]:
+        def _plot(data: dict | None) -> tuple[go.Figure, bool]:
             if data is None:
-                return (
-                    go.Figure(layout={"template": "simple_white"}),
-                    "Enter a target and an observation time.",
-                    "gray",
-                    True,
-                )
+                return go.Figure(layout={"template": "simple_white"}), True
             description = ObservationDescription.model_validate(data)
             visibility = get_target_visibility(
                 description.target, description.t0, get_lmt_observer()
@@ -170,23 +157,4 @@ class VisibilityPanel(Template):
                 description.t0 + description.get_t_exp(),
                 self._target_alt_min,
             )
-            message, color = self._check(visibility)
-            return figure, message, color, False
-
-    def _check(self, visibility: TargetVisibility) -> tuple[str, str]:
-        altaz = visibility.altaz_t0
-        position = f"Az = {altaz.az.degree:.4f}d, Alt = {altaz.alt.degree:.4f}d"
-        if not visibility.is_night_t0:
-            rise = visibility.sun_rise_time.iso[:19]
-            set_ = visibility.sun_set_time.iso[:19]
-            message = (
-                f"The start time is not at night (sunrise {rise}, sunset {set_}). "
-                f"Target {position}."
-            )
-            return message, "orange"
-        if altaz.alt < self._target_alt_min:
-            return (
-                f"Target {position} is below {self._target_alt_min:.0f}.",
-                "red",
-            )
-        return f"Target {position}.", "green"
+            return figure, False

@@ -1,0 +1,56 @@
+{
+  "description": "v1 obs_planner target checks (validate_date, validate_time) with the v1 LMT observer and target_alt_min = 20 deg.",
+  "recorded_on": "2026-10-19",
+  "host": "unity-toltec4",
+  "environment": "~/.pyenv/versions/tolteca_v1",
+  "tolteca_commit": "639b8a1",
+  "astropy": "5.3.4",
+  "astroplan": "0.10.1",
+  "cases": [
+    {
+      "coord": "09h55m52.4s +69d40m47s",
+      "date": "2026-01-15",
+      "time": "06:00:00",
+      "date_feedback": "Total up-time: 10.0 h. Highest at UT 08:48:02.",
+      "date_type": "valid",
+      "time_feedback": "Target Az = 16.2940d Alt = 33.3560d.",
+      "time_type": "valid"
+    },
+    {
+      "coord": "12h30m49.4s +12d23m28s",
+      "date": "2026-05-20",
+      "time": "03:30:00",
+      "date_feedback": "Total up-time: 7.5 h. Highest at UT 03:09:22.",
+      "date_type": "valid",
+      "time_feedback": "Target Az = 215.9745d Alt = 81.7441d.",
+      "time_type": "valid"
+    },
+    {
+      "coord": "09h55m52.4s +69d40m47s",
+      "date": "2026-01-15",
+      "time": "18:00:00",
+      "date_feedback": "Total up-time: 10.0 h. Highest at UT 08:48:02.",
+      "date_type": "valid",
+      "time_feedback": "The time entered is not at night. Sunrise: 2026-01-15 13:09:07.978. Sunset: 2026-01-16 00:08:29.767",
+      "time_type": "invalid"
+    },
+    {
+      "coord": "12h30m49.4s +12d23m28s",
+      "date": "2026-01-15",
+      "time": "06:00:00",
+      "date_feedback": "Total up-time: 6.5 h. Highest at UT 11:20:45.",
+      "date_type": "valid",
+      "time_feedback": "Target at Az = 81.2239d Alt =12.6625d is too low (< 20.0 deg) to observer. Pick another time.",
+      "time_type": "invalid"
+    },
+    {
+      "coord": "19h50m00s -21d00m00s",
+      "date": "2026-01-15",
+      "time": "06:00:00",
+      "date_feedback": "Target is not up at night. Pick another date.",
+      "date_type": "invalid",
+      "time_feedback": "Target at Az = 257.0494d Alt =-79.9558d is too low (< 20.0 deg) to observer. Pick another time.",
+      "time_type": "invalid"
+    }
+  ]
+}

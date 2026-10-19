@@ -1,0 +1,24 @@
+/* Visual cues of the v1 planner on Mantine inputs (see controls.py). */
+
+/* A valid checked input: green border, check mark, feedback in green. */
+.toltec-field[data-valid] input {
+  --input-bd: var(--mantine-color-green-filled);
+}
+
+.toltec-check {
+  visibility: hidden;
+  color: var(--mantine-color-green-filled);
+}
+
+.toltec-field[data-valid] .toltec-check {
+  visibility: visible;
+}
+
+.toltec-feedback {
+  color: var(--mantine-color-green-text);
+}
+
+/* Dash's :invalid outline conflicts with Mantine's own error style. */
+input:invalid {
+  outline: none !important;
+}

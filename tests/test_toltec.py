@@ -25,6 +25,10 @@ from tolteca_simu.toltec.planning import (
 REFERENCE = json.loads(
     (Path(__file__).parent / "data" / "v1_toltec_reference.json").read_text()
 )
+# The sky view's FOV layer of the same cases, from v1 Toltec.make_traj_data.
+FOV_REFERENCE = json.loads(
+    (Path(__file__).parent / "data" / "v1_fov_outline_reference.json").read_text()
+)
 PRESETS = MappingPresets.from_yaml(get_default_presets_path())
 TARGET = parse_target(REFERENCE["target_data"]["name"])
 T0 = Time(f"{REFERENCE['target_data']['date']} {REFERENCE['target_data']['time']}")
@@ -64,6 +68,7 @@ def case(request: pytest.FixtureRequest, planner: ToltecPlanner) -> tuple:
         t_exp=t_exp,
         apt=planner.apt,
         n_dets_designed=planner.n_dets_designed,
+        array_outline=planner.array_outlines[c["array_name"]],
         loading_models=planner.get_loading_models(c["atm_model_name"]),
         array_name=c["array_name"],
         polarized=c["stokes_params"] == "QU",
@@ -100,6 +105,21 @@ def test_footprint_matches_v1(case: tuple) -> None:
     )
     np.testing.assert_allclose(
         footprint.coords_icrs.dec.degree[i], c["det_dec_deg"], rtol=0, atol=1e-10
+    )
+
+
+def test_fov_outline_matches_v1(case: tuple) -> None:
+    c, _, result = case
+    (reference,) = (
+        r
+        for r in FOV_REFERENCE["cases"]
+        if (r["preset"], r["array_name"]) == (c["preset"], c["array_name"])
+    )
+    np.testing.assert_allclose(
+        result.fov_outline.ra.degree, reference["fov_ra_deg"], rtol=0, atol=1e-10
+    )
+    np.testing.assert_allclose(
+        result.fov_outline.dec.degree, reference["fov_dec_deg"], rtol=0, atol=1e-10
     )
 
 

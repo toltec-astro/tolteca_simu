@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
-from dash_aladin_lite import GraphicLayer, Layer, Polyline
+from dash_aladin_lite import GraphicLayer, Layer, Polygon, Polyline
 from pydantic import TypeAdapter
 
 from tolteca_simu.cal_data import CalDataStore
@@ -26,9 +26,19 @@ from tolteca_simu.web.toltec_obs_planner.views_firefly import FireflyViewsPanel
 
 APT = "toltec/apt/apt_GW_v8_with_fg_pg_loc_ori_flipped_flag_fixed.ecsv"
 NUMBER = r"(-?\d+\.\d+)"
-LINE = re.compile(rf"^icrs;line\({NUMBER},{NUMBER},{NUMBER},{NUMBER}\) # color=red$")
-CIRCLE = re.compile(rf'^icrs;circle\({NUMBER},{NUMBER},{NUMBER}"\) # color=#4dabf7$')
-POLYGON = re.compile(r"^icrs;polygon\(([-\d.,]+)\) # color=#66cccc width=2$")
+LINE = re.compile(
+    rf"^icrs;line\({NUMBER},{NUMBER},{NUMBER},{NUMBER}\) # color=red width=1$"
+)
+CIRCLE = re.compile(rf'^icrs;circle\({NUMBER},{NUMBER},{NUMBER}"\) # color=blue$')
+POLYGON = re.compile(r"^icrs;polygon\(([-\d.,]+)\) # (.+)$")
+# The sky view layers of v1 (Toltec.make_traj_data, make_skyview_params):
+# name, color, line width and whether shown at first.
+V1_SKY_LAYERS = {
+    "trajectory": ("Mapping Trajectory", "red", 1, True),
+    "detectors": ("Detectors: TolTEC 1.1 mm array", "blue", 1, False),
+    "fov": ("FOV: TolTEC 1.1 mm array", "#cc66cc", 8, True),
+    "outline": ("Coverage Outline", "#66cccc", 4, True),
+}
 
 
 @pytest.fixture(
@@ -117,27 +127,41 @@ def test_description_marks_detectors_and_outline(
     assert view_description["coverage_title"] == (
         "Coverage (s/pixel): TolTEC 1.1 mm array"
     )
+    fov = np.asarray(view_description["fov_outline"])
+    assert fov[:, 0] == pytest.approx(result.fov_outline.ra.degree)
+    assert fov[:, 1] == pytest.approx(result.fov_outline.dec.degree)
+
+
+def _polygon(region: str) -> tuple[np.ndarray, str]:
+    match = POLYGON.match(region)
+    assert match
+    vertices = np.array(match.group(1).split(","), dtype=float).reshape(-1, 2)
+    return vertices, match.group(2)
 
 
 def test_firefly_regions_follow_the_description(view_description: dict) -> None:
     views = FireflyViewsPanel.make_views(view_description)
-    ra, dec, frame = views["world_pt"].split(";")
-    assert frame == "EQ_J2000"
-    assert [float(ra), float(dec)] == view_description["center"]
-    segments = _parse(LINE, views["regions"]["trajectory"])
+    assert views["size_deg"] == view_description["size_deg"]
+    sky = {layer["id"]: layer for layer in views["sky_layers"]}
+    assert list(sky) == list(V1_SKY_LAYERS)
+    for layer_id, (title, _, _, visible) in V1_SKY_LAYERS.items():
+        assert (sky[layer_id]["title"], sky[layer_id]["visible"]) == (title, visible)
+    segments = _parse(LINE, sky["trajectory"]["regions"])
     # Segments join end to end along the trajectory vertices.
     assert segments[1:, :2] == pytest.approx(segments[:-1, 2:])
     trajectory = np.asarray(view_description["trajectory"])
     assert segments[:, :2] == pytest.approx(trajectory[:-1], abs=1e-6)
-    circles = _parse(CIRCLE, views["regions"]["detectors"])
+    circles = _parse(CIRCLE, sky["detectors"]["regions"])
     detectors = view_description["detectors"]
     assert circles[:, :2] == pytest.approx(np.asarray(detectors["positions"]), abs=1e-6)
     assert circles[:, 2] == pytest.approx(detectors["radius_deg"] * 3600, abs=0.005)
-    (outline,) = views["regions"]["outline"]
-    match = POLYGON.match(outline)
-    assert match
-    vertices = np.array(match.group(1).split(","), dtype=float).reshape(-1, 2)
-    assert vertices == pytest.approx(np.asarray(view_description["outline"]), abs=1e-6)
+    for layer_id, key in (("fov", "fov_outline"), ("outline", "outline")):
+        _, color, width, _ = V1_SKY_LAYERS[layer_id]
+        (region,) = sky[layer_id]["regions"]
+        vertices, style = _polygon(region)
+        assert style == f"color={color} width={width}"
+        assert vertices == pytest.approx(np.asarray(view_description[key]), abs=1e-6)
+    assert views["coverage_layers"] == [sky["outline"]]
 
 
 def test_aladin_layers_follow_the_description(view_description: dict) -> None:
@@ -145,21 +169,35 @@ def test_aladin_layers_follow_the_description(view_description: dict) -> None:
     adapter = TypeAdapter(list[Layer])
     sky = {layer.id: layer for layer in adapter.validate_python(views["sky"]["layers"])}
     coverage = adapter.validate_python(views["coverage"]["layers"])
-    assert list(sky) == ["trajectory", "detectors", "outline"]
+    sky = {i: layer for i, layer in sky.items() if isinstance(layer, GraphicLayer)}
+    assert list(sky) == list(V1_SKY_LAYERS)
+    for layer_id, (name, color, width, visible) in V1_SKY_LAYERS.items():
+        layer = sky[layer_id]
+        assert (layer.name, layer.color, layer.line_width, layer.visible) == (
+            name,
+            color,
+            width,
+            visible,
+        )
     assert [layer.id for layer in coverage] == ["outline"]
+    # As v1, a result sets the sky view's field of view, not its center, which
+    # follows the target.
+    assert set(views["sky"]) == {"fov", "layers"}
+    assert views["sky"]["fov"] == view_description["size_deg"]
     ra, dec = view_description["center"]
-    for name in ("sky", "coverage"):
-        assert views[name]["target"] == f"{ra} {dec}"
-        assert views[name]["fov"] == view_description["size_deg"]
-    detectors = sky["detectors"]
-    assert isinstance(detectors, GraphicLayer)
-    assert not detectors.visible
-    assert len(detectors.shapes) == len(view_description["detectors"]["positions"])
-    trajectory = sky["trajectory"]
-    assert isinstance(trajectory, GraphicLayer)
-    (polyline,) = trajectory.shapes
+    assert views["coverage"]["target"] == f"{ra} {dec}"
+    assert views["coverage"]["fov"] == view_description["size_deg"]
+    assert len(sky["detectors"].shapes) == len(
+        view_description["detectors"]["positions"]
+    )
+    (polyline,) = sky["trajectory"].shapes
     assert isinstance(polyline, Polyline)
     assert np.asarray(polyline.vertices) == pytest.approx(
         np.asarray(view_description["trajectory"])
+    )
+    (fov,) = sky["fov"].shapes
+    assert isinstance(fov, Polygon)
+    assert np.asarray(fov.vertices) == pytest.approx(
+        np.asarray(view_description["fov_outline"])
     )
     assert views["coverage_title"] == view_description["coverage_title"]

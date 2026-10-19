@@ -183,9 +183,16 @@ decision.
 - The page follows the layout of the v1 planner that observers know: controls in
   a left column; the sky view, the downloads, the trajectory plots, and the
   coverage view beside the sensitivity tables in the right column.
-- Two views show the planning results: a sky view with the trajectory, the
-  coverage outline, and the instrument's detectors over a HiPS survey, and a
-  coverage view of the coverage map alone with image display controls.
+- Controls keep the cues of the v1 planner: an input shows its name before and
+  its unit after the value; the target, date, start time, desired depth and
+  preset show the result of their check below them, marked valid or invalid.
+  Date and time checks inform; they do not block Execute.
+- Two views show the planning results, as in v1. The sky view shows a HiPS
+  survey from page load on, centered on the target as the observer edits it, or
+  on the target of a loaded results file. Executing sets its field of view to
+  the planned area and adds the trajectory, the instrument's detectors and field
+  of view, and the coverage outline as layers. The coverage view shows the
+  coverage map alone with image display controls.
 - A deployment selects the viewer backend that draws them: Aladin Lite in the
   page, which needs nothing beyond the Python install, so that users can run
   their own planner locally with their own presets and settings; or a Firefly
