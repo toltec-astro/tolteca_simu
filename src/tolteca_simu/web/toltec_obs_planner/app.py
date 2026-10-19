@@ -326,6 +326,12 @@ class ObsPlanner(Template):
             State(self.description(), "data"),
             State(self.verify.description(), "data"),
             State(self.instrument.coverage_unit(), "value"),
+            # As v1's spinners: the Execute buttons show that results are
+            # being computed, and take no second click meanwhile.
+            running=[
+                (Output(self._execute(), "loading"), True, False),
+                (Output(self.verify.execute(), "loading"), True, False),
+            ],
             prevent_initial_call=True,
         )
         def _plan(

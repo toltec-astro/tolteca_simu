@@ -3,6 +3,7 @@ from pathlib import Path
 
 import astropy.units as u
 import pytest
+from dash.exceptions import PreventUpdate
 from pydantic import ValidationError
 from tollan.config import RuntimeContext
 from typer.testing import CliRunner
@@ -11,6 +12,7 @@ from tolteca_simu import __version__
 from tolteca_simu.cli import app
 from tolteca_simu.core import Simu
 from tolteca_simu.web.toltec_obs_planner import create_app
+from tolteca_simu.web.toltec_obs_planner.app import ObsPlanner
 
 FIREFLY_URL = "http://127.0.0.1:8090/firefly/"
 
@@ -112,3 +114,41 @@ def test_create_app_uses_title_and_viewer(
     ]
     assert len(plan) == 1
     assert len(plan[0]["state"]) == 3
+    # The Execute buttons show that results are being computed. Dash keeps the
+    # running outputs only in its callback list.
+    callbacks = dash_app._callback_list  # noqa: SLF001
+    (running,) = (c["running"] for c in callbacks if c.get("running"))
+    assert sorted(running["running"].values()) == [True, True]
+    assert all(key.endswith(".loading") for key in running["running"])
+    assert sorted(running["runningOff"].values()) == [False, False]
+
+
+def test_presets_follow_the_instrument_settings(cal_data_path: Path) -> None:
+    runtime = RuntimeContext(
+        {"simu": {"obs_planner": {"cal_data_path": cal_data_path}}}
+    )
+    # The callback body is the panel's private method.
+    mapping = ObsPlanner(Simu(runtime).config.obs_planner).mapping
+    apply_conditions = mapping._apply_conditions  # noqa: SLF001
+    # Before the page publishes the instrument settings, nothing changes.
+    with pytest.raises(PreventUpdate):
+        apply_conditions(None, "toltec_blank_field_raster", "altaz")
+    # Polarimetry selects its own preset and maps in RA/Dec only.
+    data, key, altaz_disabled, ref_frame = apply_conditions(
+        {"name": "toltec", "polarized": True, "array_name": "a1100"},
+        "toltec_blank_field_raster",
+        "altaz",
+    )
+    assert key == "toltec_polarimetry_raster"
+    assert [d["value"] for d in data if not d["disabled"]] == [key]
+    assert (altaz_disabled, ref_frame) == (True, "icrs")
+    _, key, altaz_disabled, ref_frame = apply_conditions(
+        {"name": "toltec", "polarized": False, "array_name": "a1100"},
+        "toltec_blank_field_raster",
+        "altaz",
+    )
+    assert (key, altaz_disabled, ref_frame) == (
+        "toltec_blank_field_raster",
+        False,
+        "altaz",
+    )

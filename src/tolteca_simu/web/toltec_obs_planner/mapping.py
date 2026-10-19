@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import astropy.units as u
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, dcc
+from dash.exceptions import PreventUpdate
 from dash_component_template import Template
 from pydantic import TypeAdapter, ValidationError
 from tollan.config.types import TimeQuantityField
@@ -269,7 +270,7 @@ class MappingPanel(Template):
         )
         params = self._param_input({"preset": ALL, "param": ALL})
 
-        @app.callback(
+        app.callback(
             Output(self._preset_select(), "data"),
             Output(self._preset_select(), "value"),
             Output(self._altaz_chip(), "disabled"),
@@ -277,21 +278,7 @@ class MappingPanel(Template):
             Input(self._instrument(), "data"),
             State(self._preset_select(), "value"),
             State(self._ref_frame(), "value"),
-        )
-        def _apply_conditions(
-            instrument: dict[str, Any] | None, key: str, ref_frame: str
-        ) -> tuple:
-            conditions = {
-                k: v for k, v in (instrument or {}).items() if isinstance(v, bool)
-            }
-            data, first_enabled = self._make_preset_options(conditions)
-            if not _is_enabled(self._presets.get(key), conditions):
-                key = first_enabled
-            # Polarimetry maps in RA/Dec only.
-            polarized = bool(conditions.get("polarized", False))
-            if polarized:
-                ref_frame = "icrs"
-            return data, key, polarized, ref_frame
+        )(self._apply_conditions)
 
         preset_select = self._preset_select()
         desired_sens_input = self._desired_sens()
@@ -357,3 +344,20 @@ class MappingPanel(Template):
             pattern, ref_frame, t_exp, float(desired_sens) << u.mJy
         )
         return data, *preset_feedback, *sens_feedback
+
+    def _apply_conditions(
+        self, instrument: dict[str, Any] | None, key: str, ref_frame: str
+    ) -> tuple:
+        # The instrument settings are published by a clientside callback;
+        # until then there are no conditions to apply.
+        if instrument is None:
+            raise PreventUpdate
+        conditions = {k: v for k, v in instrument.items() if isinstance(v, bool)}
+        data, first_enabled = self._make_preset_options(conditions)
+        if not _is_enabled(self._presets.get(key), conditions):
+            key = first_enabled
+        # Polarimetry maps in RA/Dec only.
+        polarized = bool(conditions.get("polarized", False))
+        if polarized:
+            ref_frame = "icrs"
+        return data, key, polarized, ref_frame
