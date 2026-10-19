@@ -98,7 +98,10 @@ def make_visibility_figure(
 
 
 class VisibilityPanel(Template):
-    """Target elevation over the observing day, with the start time checked.
+    """Check of the target at the start time, and its elevation over the day.
+
+    The check shows in the panel; the elevation plot opens in a modal, as in
+    v1.
 
     Parameters
     ----------
@@ -112,13 +115,17 @@ class VisibilityPanel(Template):
         super().__init__()
         self._description = description
         self._target_alt_min = target_alt_min
-        card = self.child[dmc.Card](withBorder=True, padding="md")
-        stack = card.child[dmc.Stack](gap="sm")
-        stack.child[dmc.Title]("Visibility", order=5)
-        self._status = stack.child[dmc.Alert](
-            "Enter a target and an observation time.", color="gray"
+        stack = self.child[dmc.Stack](gap="xs")
+        self._status = stack.child[dmc.Text](
+            "Enter a target and an observation time.", size="xs", c="gray"
         )
-        self._graph = stack.child[dcc.Graph](
+        self._plot_button = stack.child[dmc.Button](
+            "Plot alt. vs time", size="xs", variant="light", disabled=True
+        )
+        self._modal = stack.child[dmc.Modal](
+            title="Target altitude", size="xl", opened=False
+        )
+        self._graph = self._modal.child[dcc.Graph](
             figure=go.Figure(layout={"template": "simple_white"}),
             config={"displaylogo": False},
         )
@@ -131,20 +138,28 @@ class VisibilityPanel(Template):
         app : dash.Dash
             Application receiving the callbacks.
         """
+        app.clientside_callback(
+            "function(_n_clicks) { return true; }",
+            Output(self._modal(), "opened"),
+            Input(self._plot_button(), "n_clicks"),
+            prevent_initial_call=True,
+        )
 
         @app.callback(
             Output(self._graph(), "figure"),
             Output(self._status(), "children"),
-            Output(self._status(), "color"),
+            Output(self._status(), "c"),
+            Output(self._plot_button(), "disabled"),
             Input(self._description(), "data"),
             prevent_initial_call=True,
         )
-        def _plot(data: dict | None) -> tuple[go.Figure, str, str]:
+        def _plot(data: dict | None) -> tuple[go.Figure, str, str, bool]:
             if data is None:
                 return (
                     go.Figure(layout={"template": "simple_white"}),
                     "Enter a target and an observation time.",
                     "gray",
+                    True,
                 )
             description = ObservationDescription.model_validate(data)
             visibility = get_target_visibility(
@@ -156,7 +171,7 @@ class VisibilityPanel(Template):
                 self._target_alt_min,
             )
             message, color = self._check(visibility)
-            return figure, message, color
+            return figure, message, color, False
 
     def _check(self, visibility: TargetVisibility) -> tuple[str, str]:
         altaz = visibility.altaz_t0

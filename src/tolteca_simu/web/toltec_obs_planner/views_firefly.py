@@ -1,8 +1,8 @@
 """Sky and coverage views drawn by a Firefly server.
 
-The page loads Firefly's API from the server; `assets/firefly_views.js` shows
-both views in one Firefly viewer, in Firefly's grid layout: the HiPS view with
-the overlays as DS9 regions, and the uploaded coverage FITS file.
+The page loads Firefly's API from the server; `assets/firefly_views.js` draws
+each view in its own Firefly viewer: the HiPS view with the overlays as DS9
+regions, and the uploaded coverage FITS file.
 """
 
 from __future__ import annotations
@@ -32,13 +32,22 @@ class FireflyViewsPanel(ViewsPanel):
         Base URL of the Firefly server, as browsers reach it.
     downloads : dash_component_template.LazyComponent
         Store holding the files of the current result.
+    sky_parent, coverage_parent : dash_component_template.LazyComponent
+        Containers of the sky and coverage views.
     """
 
-    def __init__(self, firefly_url: str, downloads: LazyComponent) -> None:
-        super().__init__(downloads)
-        # One Firefly viewer holds both views; its toolbar switches the layout.
-        self._viewer = self._body.child[html.Div](style={"height": "520px"})
-        self._firefly_url = self._body.child[dcc.Store](data=firefly_url)
+    def __init__(
+        self,
+        firefly_url: str,
+        downloads: LazyComponent,
+        sky_parent: LazyComponent,
+        coverage_parent: LazyComponent,
+    ) -> None:
+        super().__init__(downloads, sky_parent, coverage_parent)
+        # One Firefly viewer per view.
+        self._sky = sky_parent.child[html.Div](style={"height": "480px"})
+        self._coverage = coverage_parent.child[html.Div](style={"height": "420px"})
+        self._firefly_url = self.child[dcc.Store](data=firefly_url)
 
     @staticmethod
     def make_views(description: dict[str, Any]) -> dict[str, Any]:
@@ -105,5 +114,6 @@ class FireflyViewsPanel(ViewsPanel):
             State(self._downloads(), "data"),
             State(self._firefly_url(), "data"),
             State(self._status(), "id"),
-            State(self._viewer(), "id"),
+            State(self._sky(), "id"),
+            State(self._coverage(), "id"),
         )

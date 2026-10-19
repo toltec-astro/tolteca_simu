@@ -115,26 +115,37 @@ def make_view_description(
 
 
 class ViewsPanel(Template):
-    """Sky and coverage views; a backend fills the panel body.
+    """Sky and coverage views, placed where the page puts them.
+
+    A backend creates its sky view in ``sky_parent`` and its coverage view in
+    ``coverage_parent``; the panel itself holds the status line and the data
+    of the views.
 
     Parameters
     ----------
     downloads : dash_component_template.LazyComponent
         Store holding the files of the current result; the coverage view shows
         its coverage FITS file.
+    sky_parent : dash_component_template.LazyComponent
+        Container of the sky view.
+    coverage_parent : dash_component_template.LazyComponent
+        Container of the coverage view.
     """
 
-    def __init__(self, downloads: LazyComponent) -> None:
+    def __init__(
+        self,
+        downloads: LazyComponent,
+        sky_parent: LazyComponent,
+        coverage_parent: LazyComponent,
+    ) -> None:
         super().__init__()
         self._downloads = downloads
-        card = self.child[dmc.Card](withBorder=True, padding="md")
-        stack = card.child[dmc.Stack](gap="sm")
-        stack.child[dmc.Title]("Sky and coverage", order=5)
-        self._status = stack.child[dmc.Text](
-            "Complete the observation description.", size="xs", c="dimmed"
+        self._sky_parent = sky_parent
+        self._coverage_parent = coverage_parent
+        self._status = self.child[dmc.Text](
+            "Press Execute to plan the observation.", size="xs", c="dimmed"
         )
-        self._body = stack.child[dmc.Box]()
-        self.views = stack.child[dcc.Store](data=None)
+        self.views = self.child[dcc.Store](data=None)
 
     @staticmethod
     def make_views(description: dict[str, Any]) -> dict[str, Any] | None:

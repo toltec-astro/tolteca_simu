@@ -85,11 +85,11 @@ def test_planner_defaults(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("viewer", "scripts", "n_callbacks"),
     [
-        (None, [], 16),
+        (None, [], 20),
         (
             {"kind": "firefly", "url": FIREFLY_URL},
             [f"{FIREFLY_URL}firefly_loader.js"],
-            16,
+            20,
         ),
     ],
 )
@@ -103,3 +103,12 @@ def test_create_app_uses_title_and_viewer(
     assert dash_app.title == "Planner Test"
     assert dash_app.config.external_scripts == scripts
     assert len(dash_app.callback_map) == n_callbacks
+    # Results are computed on Execute only: the Plan or the Verify button.
+    plan = [
+        callback
+        for callback in dash_app.callback_map.values()
+        if len(callback["inputs"]) == 2
+        and all(i["property"] == "n_clicks" for i in callback["inputs"])
+    ]
+    assert len(plan) == 1
+    assert len(plan[0]["state"]) == 3

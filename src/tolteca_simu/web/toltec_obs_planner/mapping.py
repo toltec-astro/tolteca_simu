@@ -146,6 +146,8 @@ class MappingPanel(Template):
             data=_REF_FRAMES, value="altaz", size="xs"
         )
         self._status = stack.child[dmc.Text](size="xs")
+        # Where the page adds its Execute button.
+        self.footer = stack.child[dmc.Stack](gap="xs")
         self.mapping = stack.child[dcc.Store](data=None)
 
     def _make_preset_options(

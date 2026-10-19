@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import dash_mantine_components as dmc
 from dash import ClientsideFunction, Input, Output, State
 from dash_aladin_lite import AladinLite, Circle, GraphicLayer, Polygon, Polyline
 
@@ -47,19 +46,25 @@ class AladinViewsPanel(ViewsPanel):
     ----------
     downloads : dash_component_template.LazyComponent
         Store holding the files of the current result.
+    sky_parent, coverage_parent : dash_component_template.LazyComponent
+        Containers of the sky and coverage views.
     """
 
-    def __init__(self, downloads: LazyComponent) -> None:
-        super().__init__(downloads)
-        # Aladin Lite draws one view per component: two cells side by side.
-        grid = self._body.child[dmc.SimpleGrid](cols={"base": 1, "lg": 2})
-        style = {"width": "100%", "height": "520px"}
-        self._sky = grid.child[AladinLite](
+    def __init__(
+        self,
+        downloads: LazyComponent,
+        sky_parent: LazyComponent,
+        coverage_parent: LazyComponent,
+    ) -> None:
+        super().__init__(downloads, sky_parent, coverage_parent)
+        self._sky = sky_parent.child[AladinLite](
             survey=_SURVEY,
             options=_OPTIONS | {"showSimbadPointerControl": True},
-            style=style,
+            style={"width": "100%", "height": "480px"},
         )
-        self._coverage = grid.child[AladinLite](options=_OPTIONS, style=style)
+        self._coverage = coverage_parent.child[AladinLite](
+            options=_OPTIONS, style={"width": "100%", "height": "420px"}
+        )
 
     @staticmethod
     def make_views(description: dict[str, Any]) -> dict[str, Any]:

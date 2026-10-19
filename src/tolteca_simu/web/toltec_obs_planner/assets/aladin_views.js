@@ -17,7 +17,7 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
       if (!views || !downloads) {
         return [
           ...Array(6).fill(noUpdate),
-          "Complete the observation description.",
+          "Press Execute to plan the observation.",
         ];
       }
       const { filename, content_gzip } = downloads.coverage;

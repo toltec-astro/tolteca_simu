@@ -45,6 +45,8 @@ class TargetPanel(Template):
         self._time_input = stack.child[dmc.TimeInput](
             label="Start time (UT)", withSeconds=True, value="06:00:00"
         )
+        # Where the page adds the check of the target at the start time.
+        self.footer = stack.child[dmc.Stack](gap="xs")
         self._resolved = stack.child[dcc.Store](data=None)
         self.target = stack.child[dcc.Store](data=None)
 

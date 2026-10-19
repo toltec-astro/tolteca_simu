@@ -177,7 +177,12 @@ decision.
   directly.
 - A user can export the current observation description and its observing
   script, and reload a description to restore the same results.
-- Results update interactively as the observer edits the description.
+- The description is checked as the observer edits it; results are computed when
+  the observer executes it (Plan), or executes the description recorded in a
+  loaded results file (Verify).
+- The page follows the layout of the v1 planner that observers know: controls in
+  a left column; the sky view, the downloads, the trajectory plots, and the
+  coverage view beside the sensitivity tables in the right column.
 - Two views show the planning results: a sky view with the trajectory, the
   coverage outline, and the instrument's detectors over a HiPS survey, and a
   coverage view of the coverage map alone with image display controls.

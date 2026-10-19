@@ -1,12 +1,11 @@
 // Sky and coverage views of the TolTEC observation planner, drawn by Firefly.
 //
-// The page loads firefly_loader.js from the Firefly server. Both views are
-// plots in one Firefly viewer, in its grid layout; its toolbar switches
-// between the grid and one plot at a time. For each planning result, this
-// callback shows the HiPS survey with the trajectory, outline and detector
-// regions, and uploads the result's coverage FITS file (gzip compressed, as
-// the page keeps it for its download) to show it as the coverage view. Both
-// plots are drawn at the same time.
+// The page loads firefly_loader.js from the Firefly server. Each view is a
+// Firefly viewer with one plot. For each planning result, this callback shows
+// the HiPS survey with the trajectory, outline and detector regions, and
+// uploads the result's coverage FITS file (gzip compressed, as the page keeps
+// it for its download) to show it in the coverage view. Both views are drawn
+// at the same time.
 
 // Firefly calls onFireflyLoaded once its API is ready.
 window.toltecObsPlannerFirefly =
@@ -82,9 +81,9 @@ const HIPS_OVERLAYS = [
   "MOC_PLOT_TYPE",
 ].join(";");
 
-// The viewer, and the plots and region layers drawn for the current result.
+// The viewers, and the plots and region layers drawn for the current result.
 const drawn = {
-  viewer: null,
+  viewers: {},
   count: 0,
   sky: null,
   skyKey: null,
@@ -92,19 +91,21 @@ const drawn = {
   layers: [],
 };
 
-// Create the Firefly viewer in its element, unless the element holds it; a
-// new element (the page re-rendered) gets a new viewer and new plots.
-const ensureViewer = (firefly, viewerId) => {
+// Create a Firefly viewer in its element, unless the element holds it; a new
+// element (the page re-rendered) gets a new viewer, and the view's plot is
+// drawn again.
+const ensureViewer = (firefly, viewerId, view) => {
   const element = document.getElementById(viewerId);
-  if (drawn.viewer === viewerId && element.childElementCount > 0) {
+  if (drawn.viewers[view] === viewerId && element.childElementCount > 0) {
     return;
   }
-  for (const plotId of [drawn.sky, drawn.coverage]) {
-    if (plotId) {
-      removePlot(firefly, plotId);
-    }
+  if (drawn[view]) {
+    removePlot(firefly, drawn[view]);
+    drawn[view] = null;
   }
-  Object.assign(drawn, { sky: null, skyKey: null, coverage: null });
+  if (view === "sky") {
+    drawn.skyKey = null;
+  }
   const { NewPlotMode, IMAGE } = firefly.util.image;
   const newPlots = NewPlotMode.create_replace.key;
   firefly.action.dispatchAddViewer(viewerId, newPlots, IMAGE);
@@ -113,8 +114,7 @@ const ensureViewer = (firefly, viewerId) => {
     canReceiveNewPlots: newPlots,
     Toolbar: firefly.ui.MultiViewStandardToolbar,
   });
-  firefly.action.dispatchChangeViewerLayout(viewerId, "grid");
-  drawn.viewer = viewerId;
+  drawn.viewers[view] = viewerId;
 };
 
 const plotRequest = (firefly, params) =>
@@ -219,10 +219,11 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
       downloads,
       fireflyUrl,
       statusId,
-      viewerElementId,
+      skyElementId,
+      coverageElementId,
     ) {
       if (!views || !downloads) {
-        return "Complete the observation description.";
+        return "Press Execute to plan the observation.";
       }
       const report = (text) =>
         window.dash_clientside.set_props(statusId, { children: text });
@@ -241,8 +242,10 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
       );
       Promise.race([window.toltecObsPlannerFirefly, timeout])
         .then(async (firefly) => {
-          const viewerId = elementId(viewerElementId);
-          ensureViewer(firefly, viewerId);
+          const skyViewerId = elementId(skyElementId);
+          const coverageViewerId = elementId(coverageElementId);
+          ensureViewer(firefly, skyViewerId, "sky");
+          ensureViewer(firefly, coverageViewerId, "coverage");
           // The sky view is kept when only the coverage changes, such as
           // when switching its unit.
           const skyKey = JSON.stringify([
@@ -253,21 +256,13 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
           const drawing = [];
           if (skyKey !== drawn.skyKey) {
             drawn.skyKey = skyKey;
-            drawing.push(drawSky(firefly, views, viewerId));
+            drawing.push(drawSky(firefly, views, skyViewerId));
           }
-          drawing.push(drawCoverage(firefly, views, upload, viewerId));
+          drawing.push(drawCoverage(firefly, views, upload, coverageViewerId));
           await Promise.all(drawing);
-          // The grid follows the order in which Firefly creates the plots;
-          // keep the sky view first.
-          firefly.action.dispatchReplaceViewerItems(
-            viewerId,
-            [drawn.sky, drawn.coverage],
-            firefly.util.image.IMAGE,
-          );
           report(
-            "Use the toolbar for color, stretch and layers of the selected " +
-              "view, and for the grid or single layout; detectors are a " +
-              "layer to switch on.",
+            "Use each view's toolbar for color, stretch and layers; " +
+              "detectors are a layer to switch on.",
           );
         })
         .catch((error) => report(error.message));
