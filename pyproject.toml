@@ -38,6 +38,7 @@ dependencies = [
   "dash>=4.4.1",
   "dash-mantine-components",
   "dash-component-template",
+  "dash_aladin_lite",
   "plotly",
   "gunicorn",
   "contourpy",
@@ -83,7 +84,7 @@ docs = [
 
 [tool.setuptools.package-data]
 # Mapping presets and the run profile for deployment locations.
-tolteca_simu = ["data/**/*", "web/toltec_obs_planner/assets/*"]
+tolteca_simu = ["data/**/*"]
 
 
 [tool.setuptools_scm]

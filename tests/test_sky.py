@@ -9,6 +9,7 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.time import Time
 from astropy.wcs import WCS
+from dash_aladin_lite import GraphicLayer, ImageLayer, Polygon, Polyline
 
 from tolteca_simu.cal_data import CalDataStore
 from tolteca_simu.lmt import get_lmt_observer
@@ -20,7 +21,7 @@ from tolteca_simu.planning import (
 from tolteca_simu.planning.presets import get_default_presets_path
 from tolteca_simu.toltec.planning import ToltecPlanner
 from tolteca_simu.toltec.settings import ToltecSettings
-from tolteca_simu.web.toltec_obs_planner.sky import make_sky_layers
+from tolteca_simu.web.toltec_obs_planner.sky import make_sky_view
 
 APT = "toltec/apt/apt_GW_v8_with_fg_pg_loc_ori_flipped_flag_fixed.ecsv"
 
@@ -72,8 +73,10 @@ def test_coverage_image_keeps_values_and_sky_positions(
     planned: tuple, unit: str
 ) -> None:
     description, trajectory, result = planned
-    layers = make_sky_layers(description.target, trajectory, result, unit)
-    hdu = _read_image(layers["image"]["url"])
+    view = make_sky_view(description.target, trajectory, result, unit)
+    image = view.layers[0]
+    assert isinstance(image, ImageLayer)
+    hdu = _read_image(image.url)
     assert hdu.header["BITPIX"] == -32  # 32-bit floats
     full = result.depth.depth if unit == "depth" else result.coverage.data_on_scan
     # Cropping keeps every covered pixel and its value.
@@ -87,16 +90,25 @@ def test_coverage_image_keeps_values_and_sky_positions(
     assert hdu.data[iy, ix] == pytest.approx(full[fy, fx], rel=1e-6)
 
 
-def test_layers_frame_the_map(planned: tuple) -> None:
+def test_view_frames_the_map(planned: tuple) -> None:
     description, trajectory, result = planned
-    layers = make_sky_layers(description.target, trajectory, result, "depth")
+    view = make_sky_view(description.target, trajectory, result, "depth")
+    layers = {layer.id: layer for layer in view.layers}
+    assert list(layers) == ["coverage", "trajectory", "outline", "detectors"]
     target = description.target.icrs
-    assert layers["target"] == pytest.approx([target.ra.degree, target.dec.degree])
-    assert len(layers["trajectory"]) <= 2000
-    assert len(layers["detectors"]["coords"]) == len(result.footprint.dlon)
+    center = SkyCoord(*(float(v) for v in view.target.split()), unit=u.deg)
+    assert center.separation(target).to_value(u.arcsec) < 1e-6
+    detectors = layers["detectors"]
+    assert isinstance(detectors, GraphicLayer)
+    assert not detectors.visible
+    assert len(detectors.shapes) == len(result.footprint.dlon)
     # The outline and every trajectory vertex lie within the view.
     for name in ("trajectory", "outline"):
-        vertices = np.asarray(layers[name])
-        assert len(vertices) > 2
+        layer = layers[name]
+        assert isinstance(layer, GraphicLayer)
+        (shape,) = layer.shapes
+        assert isinstance(shape, Polyline | Polygon)
+        vertices = np.asarray(shape.vertices)
+        assert 2 < len(vertices) <= 2000
         coords = SkyCoord(vertices[:, 0] * u.deg, vertices[:, 1] * u.deg)
-        assert coords.separation(target).max().to_value(u.deg) < layers["fov"] / 2
+        assert coords.separation(target).max().to_value(u.deg) < view.fov / 2

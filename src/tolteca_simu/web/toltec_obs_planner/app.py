@@ -34,7 +34,7 @@ from .instrument import ToltecPanel
 from .mapping import MappingPanel
 from .results import ToltecResultsPanel, make_coverage_figure, make_sensitivity_tabs
 from .site import LmtPanel
-from .sky import ALADIN_LITE_URL, SkyViewPanel, make_sky_layers
+from .sky import SkyViewPanel, make_sky_view
 from .target import TargetPanel
 from .trajectory import TrajectoryPanel, empty_figure, make_trajectory_figures
 from .visibility import VisibilityPanel
@@ -76,7 +76,6 @@ def create_app(runtime: RuntimeContext) -> Dash:
         __name__,
         title=config.title,
         url_base_pathname=config.server.url_base_pathname,
-        external_scripts=[ALADIN_LITE_URL],
     )
     app.layout = planner.layout()
     planner.register_callbacks(app)
@@ -192,7 +191,9 @@ class ObsPlanner(Template):
             Output(results.coverage(), "figure"),
             Output(results.sensitivity(), "children"),
             Output(results.status(), "children"),
-            Output(self.sky.layers(), "data"),
+            Output(self.sky.viewer(), "target"),
+            Output(self.sky.viewer(), "fov"),
+            Output(self.sky.viewer(), "layers"),
             Input(self.description(), "data"),
             Input(self.instrument.coverage_unit(), "value"),
             prevent_initial_call=True,
@@ -204,7 +205,9 @@ class ObsPlanner(Template):
                     empty_figure(),
                     None,
                     "Complete the observation description.",
-                    None,
+                    dash.no_update,
+                    dash.no_update,
+                    [],
                 ]
             description = ObservationDescription.model_validate(data)
             trajectory, result, time_cost = self._compute(description)
@@ -225,7 +228,7 @@ class ObsPlanner(Template):
                 make_coverage_figure(result, coverage_unit),
                 make_sensitivity_tabs(result, time_cost),
                 status,
-                make_sky_layers(description.target, trajectory, result, coverage_unit),
+                *make_sky_view(description.target, trajectory, result, coverage_unit),
             ]
 
         self._setup_download_callbacks(app)
