@@ -29,12 +29,13 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
   "tollan",
-  "tolteca",
   "astropy",
   "astroplan",
   "numpy",
+  "scipy",
   "pydantic",
   "typer",
+  "rich",
   "dash>=4.4.1",
   "dash-mantine-components",
   "dash-component-template",
