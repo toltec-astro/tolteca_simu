@@ -178,6 +178,10 @@ decision.
 - A user can export the current observation description and its observing
   script, and reload a description to restore the same results.
 - Results update interactively as the observer edits the description.
+- A sky view shows the planning results over a sky survey: the coverage map, the
+  trajectory, the coverage outline, and the instrument's detectors. It is drawn
+  by Aladin Lite through `dash_aladin_lite`, a general-purpose Dash component
+  package outside TolTECA. A coverage plot gives the map values.
 - The application does not produce synthetic acquisitions.
 
 ### Deployment
@@ -235,12 +239,10 @@ decision.
 
 ## Open decisions
 
-1. **Sky and image viewers in the application.** v1 embeds JS9 for FITS coverage
-   maps and Aladin Lite for the sky view. The replacement needs research into
-   current options. Viewers can be embedded in the application or run beside it:
-   CARTA is a full web application that can serve as a result display backend,
-   to which the application publishes data and links ("open in CARTA"), whether
-   or not it embeds in Dash.
+1. **Side-by-side result display.** CARTA, a full web application, can serve as
+   a display backend beside the planner: the planner publishes result files and
+   links to them ("open in CARTA"). Whether and how to provide it waits for a
+   CARTA deployment.
 2. **Preservation and serving of calibration artifacts.** The temporary store is
    a stopgap. The lmtdv0 Dataverse that served the static atmosphere tables is
    unavailable.
