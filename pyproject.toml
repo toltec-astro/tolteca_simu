@@ -38,7 +38,8 @@ dependencies = [
   "dash>=4.4.1",
   "dash-mantine-components",
   "dash-component-template",
-  "dash_aladin_lite",
+  # v2 is not on PyPI (the name there holds v1); follow its development branch.
+  "dash_aladin_lite @ git+https://github.com/toltec-astro/dash_aladin_lite.git@v2.x",
   "plotly",
   "gunicorn",
   "contourpy",
