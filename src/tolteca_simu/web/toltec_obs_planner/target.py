@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import astropy.units as u
@@ -25,6 +26,21 @@ __all__ = ["TargetPanel", "check_date", "check_start_time"]
 
 _DATE_LABEL = "Obs Date"
 _TIME_LABEL = "Obs Start Time (UT)"
+# The formats of the date and start time inputs, as in v1.
+_DATE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
+_TIME_PATTERN = re.compile(r"\d{2}:\d{2}:\d{2}")
+
+
+def _parse_start(date: str | None, time: str | None = "00:00:00") -> Time | None:
+    # The UT start time, or None unless both inputs have their format.
+    if not date or not time:
+        return None
+    if not (_DATE_PATTERN.fullmatch(date) and _TIME_PATTERN.fullmatch(time)):
+        return None
+    try:
+        return Time(f"{date} {time}", scale="utc")
+    except ValueError:
+        return None
 
 
 def check_date(
@@ -141,13 +157,13 @@ class TargetPanel(Template):
                 f"checking if the target elevation is > {target_alt_min} during "
                 "the night time.",
             ),
-            dmc.DateInput,
+            dmc.TextInput,
             _DATE_LABEL,
             label_width=width,
             checked=True,
-            valueFormat="YYYY-MM-DD",
             placeholder="yyyy-mm-dd",
             value=None,
+            debounce=True,
         )
         self._time_input = field(
             with_tooltip(
@@ -155,12 +171,13 @@ class TargetPanel(Template):
                 "The time of observation. The target has to be at elevation > "
                 f"{target_alt_min} during the night.",
             ),
-            dmc.TimeInput,
+            dmc.TextInput,
             _TIME_LABEL,
             label_width=width,
             checked=True,
-            withSeconds=True,
+            placeholder="HH:MM:SS",
             value="06:00:00",
+            debounce=True,
         )
         # Where the page adds the altitude plot and the site information.
         self.footer = stack.child[dmc.Stack](gap="xs")
@@ -236,19 +253,21 @@ class TargetPanel(Template):
     def _check_date(self, date: str | None, resolved: dict | None) -> tuple:
         if resolved is None:
             return feedback(None, valid=False)
-        if not date:
+        day = _parse_start(date)
+        if day is None:
             return feedback("Invalid Date. Use yyyy-mm-dd.", valid=False)
         message, valid = check_date(
-            _coord(resolved), Time(date), get_lmt_observer(), self._target_alt_min
+            _coord(resolved), day, get_lmt_observer(), self._target_alt_min
         )
         return feedback(message, valid=valid)
 
-    def _check_time(self, time: str, date: str | None, resolved: dict | None) -> tuple:
-        if resolved is None or not date:
+    def _check_time(
+        self, time: str | None, date: str | None, resolved: dict | None
+    ) -> tuple:
+        if resolved is None or _parse_start(date) is None:
             return feedback(None, valid=False)
-        try:
-            t0 = Time(f"{date} {time}", scale="utc")
-        except ValueError:
+        t0 = _parse_start(date, time)
+        if t0 is None:
             return feedback("Invalid time. Use HH:MM:SS.", valid=False)
         message, valid = check_start_time(
             _coord(resolved), t0, get_lmt_observer(), self._target_alt_min
@@ -257,13 +276,10 @@ class TargetPanel(Template):
 
     @staticmethod
     def _make_target(
-        resolved: dict | None, date: str | None, time: str
+        resolved: dict | None, date: str | None, time: str | None
     ) -> dict[str, str] | None:
-        if resolved is None or not date:
-            return None
-        try:
-            t0 = Time(f"{date} {time}", scale="utc")
-        except ValueError:
+        t0 = _parse_start(date, time)
+        if resolved is None or t0 is None:
             return None
         return {
             "target_name": resolved["name"],

@@ -10,7 +10,7 @@ from dash_component_template import Template
 
 from tolteca_simu.toltec import TOLTEC_ARRAYS
 
-from .controls import labeled_choice, section_width
+from .controls import hover_card, labeled_choice, section_width
 
 if TYPE_CHECKING:
     from dash import Dash
@@ -21,49 +21,46 @@ if TYPE_CHECKING:
 __all__ = ["ToltecPanel"]
 
 # v1 obs_planner toltec.py: the notice of shared risks and the polarimetry notes.
-_README = """
-**WARNING**
-
-The TolTEC team has made its best guesses about the sensitivity and mapping
-speed of the instrument based on commissioning data taken in December, 2022.
-
-Users of this tool should be aware that these estimates are very uncertain.
-Users are encouraged to use a very healthy safety margin in their requested
-time when writing their proposals.
-"""
-_POLARIMETRY_NOTES = """
-**Notes on Polarimetry**
-
-For polarimetry measurements, the relevant quantity is the 1-sigma uncertainty
-(error bar) in the polarized intensity. Here the polarized intensity is defined
-as the total intensity multiplied by the polarization fraction. Because of the
-need to separately measure Stokes Q and Stokes U, the integration time required
-to reach a given polarized intensity error bar is double that required to reach
-the same total intensity error bar. We apply an additional penalty due to
-imperfect polarization modulation (e.g., non-ideal behavior in the half-wave
-plate). This penalty is a factor of 10% in sensitivity (~20% in observing
-time)
-
-See:
-
-A Primer on Far-Infrared Polarimetry, Hildebrand, R.H., et al. 2000,
-Publications of the Astronomical Society of the Pacific, 112, 1215.
-
-Appendix B.1 of Planck Intermediate Results XIX
-([link](https://arxiv.org/pdf/1405.0871.pdf))
-"""
+_README = [
+    (
+        "The TolTEC team has made its best guesses about the sensitivity and mapping "
+        "speed of the instrument based on commissioning data taken in December, 2022."
+    ),
+    (
+        "Users of this tool should be aware that these estimates are very uncertain. "
+        "Users are encouraged to use a very healthy safety margin in their requested "
+        "time when writing their proposals."
+    ),
+]
+_POLARIMETRY_NOTES = [
+    (
+        "For polarimetry measurements, the relevant quantity is the 1-sigma "
+        "uncertainty (error bar) in the polarized intensity. Here the polarized "
+        "intensity is defined as the total intensity multiplied by the polarization "
+        "fraction. Because of the need to separately measure Stokes Q and Stokes U, "
+        "the integration time required to reach a given polarized intensity error bar "
+        "is double that required to reach the same total intensity error bar. We "
+        "apply an additional penalty due to imperfect polarization modulation (e.g., "
+        "non-ideal behavior in the half-wave plate). This penalty is a factor of 10% "
+        "in sensitivity (~20% in observing time)"
+    ),
+    "See:",
+    (
+        "A Primer on Far-Infrared Polarimetry, Hildebrand, R.H., et al. 2000, "
+        "Publications of the Astronomical Society of the Pacific, 112, 1215."
+    ),
+]
+_PLANCK_XIX_URL = "https://arxiv.org/pdf/1405.0871.pdf"
 _LABELS = ["Stokes Params", "TolTEC band", "Coverage Unit"]
 
 
-def _hover_card(parent: LazyComponent, notes: str) -> LazyComponent:
-    card = parent.child[dmc.HoverCard](
-        width=360, shadow="md", withArrow=True, position="bottom-start"
-    )
-    target = card.child[dmc.HoverCardTarget](boxWrapperProps={"w": "100%"})
-    card.child[dmc.HoverCardDropdown]().child[dcc.Markdown](
-        notes, link_target="_blank", style={"fontSize": "var(--mantine-font-size-xs)"}
-    )
-    return target
+def _add_notes(
+    notes: LazyComponent, title: str, paragraphs: list[str]
+) -> LazyComponent:
+    notes.child[dmc.Text](title, size="xs", fw=700)
+    for text in paragraphs:
+        notes.child[dmc.Text](text, size="xs")
+    return notes
 
 
 class ToltecPanel(Template):
@@ -84,7 +81,9 @@ class ToltecPanel(Template):
         card = self.child[dmc.Card](withBorder=True, padding="sm")
         stack = card.child[dmc.Stack](gap="xs")
         stack.child[dmc.Title]("Instrument: TolTEC", order=5)
-        _hover_card(stack, _README).child[dmc.Button](
+        readme_target, readme_notes = hover_card(stack)
+        _add_notes(readme_notes, "WARNING", _README)
+        readme_target.child[dmc.Button](
             "README Before Use: Notice of Shared Risks",
             color="red",
             variant="outline",
@@ -102,8 +101,19 @@ class ToltecPanel(Template):
             size="xs",
         )
         width = section_width(_LABELS)
+        stokes_target, stokes_notes = hover_card(stack)
+        _add_notes(stokes_notes, "Notes on Polarimetry", _POLARIMETRY_NOTES).child[
+            dmc.Text
+        ](
+            [
+                "Appendix B.1 of Planck Intermediate Results XIX (",
+                dmc.Anchor("link", href=_PLANCK_XIX_URL, target="_blank"),
+                ")",
+            ],
+            size="xs",
+        )
         self._stokes, _ = labeled_choice(
-            _hover_card(stack, _POLARIMETRY_NOTES),
+            stokes_target,
             "Stokes Params",
             [
                 {"label": "Total Intensity (I)", "value": "I"},

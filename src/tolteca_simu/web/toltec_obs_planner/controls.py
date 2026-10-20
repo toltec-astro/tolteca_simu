@@ -22,6 +22,7 @@ __all__ = [
     "INPUT_SIZE",
     "feedback",
     "field",
+    "hover_card",
     "labeled_choice",
     "section_width",
     "with_tooltip",
@@ -187,6 +188,36 @@ def labeled_choice(
         for option in options
     }
     return group, chips
+
+
+def hover_card(parent: LazyComponent) -> tuple[LazyComponent, LazyComponent]:
+    """Add a card of notes shown while the pointer is over its target.
+
+    As v1's popovers, the card opens to the right of its target, or above it
+    when there is no room, so that it does not cover a dropdown below.
+
+    Parameters
+    ----------
+    parent : dash_component_template.LazyComponent
+        Where to add the card.
+
+    Returns
+    -------
+    target : dash_component_template.LazyComponent
+        The full-width target, to add one component to.
+    notes : dash_component_template.LazyComponent
+        A `dash_mantine_components.Stack` in the card, for the notes.
+    """
+    card = parent.child[dmc.HoverCard](
+        width=360,
+        shadow="md",
+        withArrow=True,
+        position="right-start",
+        middlewares={"flip": {"fallbackPlacements": ["top-start"]}, "shift": True},
+    )
+    target = card.child[dmc.HoverCardTarget](boxWrapperProps={"w": "100%"})
+    notes = card.child[dmc.HoverCardDropdown]().child[dmc.Stack](gap="xs")
+    return target, notes
 
 
 def with_tooltip(parent: LazyComponent, text: str) -> LazyComponent:

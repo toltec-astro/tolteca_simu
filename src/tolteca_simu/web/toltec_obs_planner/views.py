@@ -21,6 +21,7 @@ from contourpy import contour_generator
 from dash import dcc
 from dash_component_template import Template
 
+from tolteca_simu.sky import SkyBoundingBox
 from tolteca_simu.toltec import TOLTEC_ARRAYS
 
 if TYPE_CHECKING:
@@ -85,7 +86,8 @@ def make_view_description(
     -------
     dict
         ``center`` (RA, Dec in degrees, ICRS) and ``size_deg`` of the views,
-        framing the trajectory and the array; ``array_name_long``,
+        the trajectory's bounding box padded with the array's, as 61.8 % of
+        the view; ``array_name_long``,
         ``sky_title`` and ``coverage_title``; the ``trajectory`` (at most 2000
         RA, Dec vertices); the ``fov_outline`` (vertices of the designed
         array's outline); the coverage ``outline`` (vertices of the 10 %
@@ -98,13 +100,13 @@ def make_view_description(
         result.footprint.coords_icrs.ra, result.footprint.coords_icrs.dec
     )
     target = SkyCoord(target.icrs.ra, target.icrs.dec)
-    # The views span the trajectory with the array around it.
-    dx, dy = target.spherical_offsets_to(icrs)
-    det_dx, det_dy = target.spherical_offsets_to(detectors)
-    extent = max(
-        np.ptp(dx.to_value(u.deg)) + np.ptp(det_dx.to_value(u.deg)),
-        np.ptp(dy.to_value(u.deg)) + np.ptp(det_dy.to_value(u.deg)),
+    # As v1: the views span the trajectory's bounding box padded with the
+    # array's.
+    array_box = SkyBoundingBox.from_lonlat(detectors.ra, detectors.dec)
+    box = SkyBoundingBox.from_lonlat(icrs.ra, icrs.dec).pad_with(
+        array_box.width, array_box.height
     )
+    extent = max(box.width, box.height).to_value(u.deg)
     array = TOLTEC_ARRAYS[result.array_name]
     unit_label = "mJy/beam" if unit == "depth" else "s/pixel"
     return {

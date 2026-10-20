@@ -11,7 +11,11 @@ from astropy.time import Time
 
 from tolteca_simu.lmt import get_lmt_observer
 from tolteca_simu.planning import get_target_visibility
-from tolteca_simu.web.toltec_obs_planner.target import check_date, check_start_time
+from tolteca_simu.web.toltec_obs_planner.target import (
+    TargetPanel,
+    check_date,
+    check_start_time,
+)
 from tolteca_simu.web.toltec_obs_planner.visibility import make_visibility_figure
 
 # Recorded with v1 on unity-toltec4; see the file's provenance fields.
@@ -89,3 +93,22 @@ def test_figure_marks_interval_and_night() -> None:
     (marker,) = (trace for trace in fig.data if trace.mode == "markers")
     # v1 marks from the sample before t0 through the sample after t1.
     assert len(marker.x) == 4
+
+
+def test_date_and_time_inputs_use_the_v1_formats() -> None:
+    panel = TargetPanel(target_alt_min=20 * u.deg)
+    resolved = {"name": "M1", "ra_deg": 83.6324, "dec_deg": 22.0174}
+    # The panel's callback bodies are private methods.
+    check_date = panel._check_date  # noqa: SLF001
+    check_time = panel._check_time  # noqa: SLF001
+    for date in ("2026/10/19", "19-10-2026", "2026-13-45", ""):
+        error, _, mod = check_date(date, resolved)
+        assert (error, mod) == ("Invalid Date. Use yyyy-mm-dd.", {})
+    _, message, mod = check_date("2026-10-19", resolved)
+    assert message.startswith("Total up-time:")
+    assert mod == {"valid": True}
+    for time in ("6:00", "06:00", "06:00:00.5", "25:00:00"):
+        error, _, _ = check_time(time, "2026-10-19", resolved)
+        assert error == "Invalid time. Use HH:MM:SS."
+    _, message, _ = check_time("06:00:00", "2026-10-19", resolved)
+    assert message.startswith("Target Az = ")

@@ -21,7 +21,14 @@ from tolteca_simu.mapping import (
 )
 from tolteca_simu.planning.description import FluxDensityQuantityField
 
-from .controls import feedback, field, labeled_choice, section_width, with_tooltip
+from .controls import (
+    feedback,
+    field,
+    hover_card,
+    labeled_choice,
+    section_width,
+    with_tooltip,
+)
 
 if TYPE_CHECKING:
     from dash import Dash
@@ -169,20 +176,15 @@ class MappingPanel(Template):
             hideControls=True,
         )
         data, value = self._make_preset_options({"polarized": False})
-        preset_card = stack.child[dmc.HoverCard](
-            width=360, shadow="md", withArrow=True, position="bottom-start"
-        )
+        preset_target, self._preset_text = hover_card(stack)
         self._preset_select = field(
-            preset_card.child[dmc.HoverCardTarget](boxWrapperProps={"w": "100%"}),
+            preset_target,
             dmc.Select,
             checked=True,
             data=data,
             value=value,
             placeholder="Choose a mapping pattern template to edit ...",
             allowDeselect=False,
-        )
-        self._preset_text = preset_card.child[dmc.HoverCardDropdown]().child[dmc.Stack](
-            gap="xs"
         )
         param_width = section_width(
             [name for p in presets.presets for name in p.params]

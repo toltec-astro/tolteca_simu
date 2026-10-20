@@ -201,3 +201,48 @@ def test_aladin_layers_follow_the_description(view_description: dict) -> None:
         np.asarray(view_description["fov_outline"])
     )
     assert views["coverage_title"] == view_description["coverage_title"]
+
+
+# v1 ObsPlannerMappingPlotter.make_skyview_params fov (deg) for M1 at
+# 2026-10-19 06:00 UT, Az/Alt, 1.1 mm, am_q25; recorded with v1 (639b8a1) on
+# unity-toltec4.
+V1_FOV_DEG = {
+    "toltec_blank_field_raster": 4.195002305750621,
+    "toltec_blank_field_lissajous": 0.3630524050266983,
+    "toltec_blank_field_rastajous": 0.587276048312161,
+}
+
+
+@pytest.mark.parametrize(("key", "fov"), V1_FOV_DEG.items())
+def test_view_size_matches_v1(cal_data_path: Path, key: str, fov: float) -> None:
+    preset = MappingPresets.from_yaml(get_default_presets_path()).get(key)
+    pattern, t_exp = preset.make_mapping({n: p.value for n, p in preset.params.items()})
+    description = ObservationDescription(
+        target_name="M1",
+        target=SkyCoord("83.6324d 22.0174d"),
+        t0=Time("2026-10-19 06:00:00"),
+        mapping=pattern,
+        ref_frame="altaz",
+        t_exp=t_exp,
+        atm_model_name="am_q25",
+        instrument=ToltecSettings(polarized=False, array_name="a1100"),
+        desired_sens=1 * u.mJy,
+    )
+    observer = get_lmt_observer()
+    trajectory = get_trajectory(
+        description.mapping,
+        description.target,
+        description.t0,
+        t_exp=description.get_t_exp(),
+        ref_frame=description.ref_frame,
+        observer=observer,
+    )
+    planner = ToltecPlanner(
+        CalDataStore(cal_data_path),
+        apt_path=APT,
+        tel_surface_rms=100 * u.um,
+        det_noise_factors={"am_q25": {"a1100": 2.0, "a1400": 2.0, "a2000": 2.0}},
+    )
+    result = planner.plan(description, trajectory, observer)
+    size = make_view_description(description.target, trajectory, result, "depth")
+    assert size["size_deg"] == pytest.approx(fov, rel=1e-12)
