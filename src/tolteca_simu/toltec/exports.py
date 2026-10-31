@@ -7,8 +7,9 @@ reproduces the results when the file is loaded again.
 
 from __future__ import annotations
 
-from io import StringIO
-from typing import TYPE_CHECKING, Any
+import re
+from io import BytesIO, StringIO
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import astropy.units as u
 import numpy as np
@@ -16,6 +17,7 @@ from astropy.io import fits
 from astropy.table import QTable
 
 from tolteca_simu import __version__
+from tolteca_simu.lmtot import make_lmtot_script
 from tolteca_simu.planning import ObservationDescription
 
 from .info import TOLTEC_ARRAYS
@@ -24,17 +26,21 @@ from .sensitivity import POLARIZED_NOISE_FACTOR
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from .planning import ToltecPlanningResult
+    from .planning import ObservationPlan, ToltecPlanningResult
     from .time_cost import TimeCost
 
 __all__ = [
+    "ExportFiles",
     "make_coverage_hdulist",
+    "make_export_files",
     "make_results_table",
     "read_results_metadata",
     "write_results_ecsv",
 ]
 
 _DESCRIPTION_KEY = "observation_description"
+# The job key of planner simulations, recorded as the OT script author (v1).
+_JOB_KEY = "obs_planner_simu"
 
 
 def _mapping_speed_text(value: u.Quantity) -> str:
@@ -173,7 +179,9 @@ def read_results_metadata(
     return description, meta
 
 
-def make_coverage_hdulist(result: ToltecPlanningResult, unit: str) -> fits.HDUList:
+def make_coverage_hdulist(
+    result: ToltecPlanningResult, unit: Literal["depth", "time"]
+) -> fits.HDUList:
     """Return the coverage of the computed array as FITS images.
 
     Parameters
@@ -226,3 +234,68 @@ def make_coverage_hdulist(result: ToltecPlanningResult, unit: str) -> fits.HDULi
         header.append(("EXTNAME", extname, "The name of this extension"))
         hdus.append(fits.ImageHDU(data=data, header=header))
     return fits.HDUList(hdus)
+
+
+class ExportFiles(TypedDict):
+    """The files the observation planner offers, each as a name and content.
+
+    Attributes
+    ----------
+    lmtot : tuple of str
+        The LMT observing tool script.
+    results : tuple of str
+        The results table as ECSV.
+    coverage : tuple of (str, bytes)
+        The coverage FITS file.
+    """
+
+    lmtot: tuple[str, str]
+    results: tuple[str, str]
+    coverage: tuple[str, bytes]
+
+
+def make_export_files(
+    plan: ObservationPlan,
+    *,
+    apt_path: str,
+    coverage_unit: Literal["depth", "time"],
+    created_at: datetime,
+) -> ExportFiles:
+    """Return the files the observation planner offers for a plan.
+
+    Parameters
+    ----------
+    plan : tolteca_simu.toltec.planning.ObservationPlan
+        The planning results.
+    apt_path : str
+        Array property table path in the calibration store, recorded in the
+        results table.
+    coverage_unit : {"depth", "time"}
+        Coverage map as map depth in mJy/beam, or as time in s/pixel.
+    created_at : datetime.datetime
+        Creation time recorded in the OT script and the results table.
+
+    Returns
+    -------
+    ExportFiles
+        File name and content by kind: the LMT observing tool script and the
+        results table as text, the coverage FITS file as bytes.
+    """
+    description = plan.description
+    name = re.sub(r"\s+", "-", f"target_{description.target_name}")
+    table = make_results_table(
+        description, plan.result, plan.time_cost, apt_path, created_at=created_at
+    )
+    coverage = BytesIO()
+    make_coverage_hdulist(plan.result, coverage_unit).writeto(coverage)
+    return {
+        "lmtot": (
+            f"{name}.lmtot",
+            make_lmtot_script(description, author=_JOB_KEY, created_at=created_at),
+        ),
+        "results": ("toltec_obs_planner_results.ecsv", write_results_ecsv(table)),
+        "coverage": (
+            f"obsplanner_toltec_{plan.result.array_name}_cov.fits",
+            coverage.getvalue(),
+        ),
+    }

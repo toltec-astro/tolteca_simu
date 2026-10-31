@@ -1,0 +1,18 @@
+target_name: M82
+target: 09h55m52.4s +69d40m47s
+t0: "2026-01-15T06:00:00"
+mapping:
+  type: lissajous
+  x_length: 4 arcmin
+  y_length: 4 arcmin
+  x_omega: 0.5187711877562599 rad / s
+  y_omega: 0.3990547598125076 rad / s
+  delta: 45 deg
+  rot: 0 deg
+ref_frame: altaz
+t_exp: 10 min
+atm_model_name: am_q25
+instrument:
+  polarized: false
+  array_name: a1100
+desired_sens: 1 mJy

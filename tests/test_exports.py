@@ -11,8 +11,10 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import astropy.units as u
+import numpy as np
 import pytest
 from astropy.time import Time
 
@@ -28,11 +30,16 @@ from tolteca_simu.planning import (
 from tolteca_simu.planning.presets import get_default_presets_path
 from tolteca_simu.toltec.exports import (
     make_coverage_hdulist,
+    make_export_files,
     make_results_table,
     read_results_metadata,
     write_results_ecsv,
 )
-from tolteca_simu.toltec.planning import ToltecPlanner
+from tolteca_simu.toltec.planning import (
+    ObservationPlan,
+    ToltecPlanner,
+    plan_observation,
+)
 from tolteca_simu.toltec.settings import ToltecSettings
 from tolteca_simu.toltec.time_cost import get_time_cost
 from tolteca_simu.web.toltec_obs_planner.exports import make_downloads
@@ -125,11 +132,12 @@ def case(request: pytest.FixtureRequest, planner: ToltecPlanner) -> tuple:
     )
     result = planner.plan(description, trajectory, observer)
     time_cost = get_time_cost(result.n_passes, result.t_exp, result.t_exp_eff)
-    return c, description, result, time_cost
+    return c, ObservationPlan(description, trajectory, result, time_cost)
 
 
 def test_time_cost_matches_v1(case: tuple) -> None:
-    c, _, _, time_cost = case
+    c, plan = case
+    time_cost = plan.time_cost
     row = c["sens_table"][0]
     assert time_cost.science_time.to_value(u.h) == pytest.approx(
         row["proj_science_time"], rel=RTOL
@@ -148,7 +156,8 @@ def test_time_cost_matches_v1(case: tuple) -> None:
 
 
 def test_lmtot_script_matches_v1(case: tuple) -> None:
-    c, description, _, _ = case
+    c, plan = case
+    description = plan.description
     date = c["lmtot"].split('-Date "')[1].split('"')[0]
     created_at = datetime.strptime(date, "%a %b %d %H:%M:%S UTC %Y").replace(tzinfo=UTC)
     script = make_lmtot_script(
@@ -166,9 +175,9 @@ def test_lmtot_script_matches_v1(case: tuple) -> None:
 
 
 def test_results_table_matches_v1(case: tuple) -> None:
-    c, description, result, time_cost = case
+    c, plan = case
     table = make_results_table(
-        description, result, time_cost, APT, created_at=datetime.now(UTC)
+        plan.description, plan.result, plan.time_cost, APT, created_at=datetime.now(UTC)
     )
     assert table.colnames == V1_COLUMNS
     for row in c["sens_table"]:
@@ -188,17 +197,18 @@ def test_results_table_matches_v1(case: tuple) -> None:
 
 
 def test_results_ecsv_reloads_description(case: tuple) -> None:
-    _, description, result, time_cost = case
+    _, plan = case
     table = make_results_table(
-        description, result, time_cost, APT, created_at=datetime.now(UTC)
+        plan.description, plan.result, plan.time_cost, APT, created_at=datetime.now(UTC)
     )
     reloaded, meta = read_results_metadata(write_results_ecsv(table))
-    assert reloaded == description
+    assert reloaded == plan.description
     assert meta["apt"] == APT
 
 
 def test_coverage_fits_headers_match_v1(case: tuple) -> None:
-    c, _, result, _ = case
+    c, plan = case
+    result = plan.result
     hdulist = make_coverage_hdulist(result, c["coverage_map_type"])
     assert [hdu.header["EXTNAME"] for hdu in hdulist[1:]] == [
         ref["extname"] for ref in c["hdus"]
@@ -218,28 +228,68 @@ def test_reading_a_table_without_description_fails() -> None:
 
 
 @pytest.mark.parametrize("unit", ["depth", "time"])
-def test_downloads_are_the_result_files(case: tuple, unit: str) -> None:
-    _, description, result, time_cost = case
+def test_export_files_are_the_result_files(
+    case: tuple, unit: Literal["depth", "time"]
+) -> None:
+    _, plan = case
     created_at = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
-    downloads = make_downloads(
-        description,
-        result,
-        time_cost,
-        apt_path=APT,
-        coverage_unit=unit,
-        created_at=created_at,
+    files = make_export_files(
+        plan, apt_path=APT, coverage_unit=unit, created_at=created_at
     )
     buffer = io.BytesIO()
-    make_coverage_hdulist(result, unit).writeto(buffer)
-    coverage = downloads["coverage"]
-    fits_bytes = gzip.decompress(base64.b64decode(coverage["content_gzip"]))
-    assert fits_bytes == buffer.getvalue()
-    assert coverage["filename"] == f"obsplanner_toltec_{result.array_name}_cov.fits"
+    make_coverage_hdulist(plan.result, unit).writeto(buffer)
+    assert files["coverage"] == (
+        f"obsplanner_toltec_{plan.result.array_name}_cov.fits",
+        buffer.getvalue(),
+    )
     table = make_results_table(
-        description, result, time_cost, APT, created_at=created_at
+        plan.description, plan.result, plan.time_cost, APT, created_at=created_at
     )
-    assert downloads["results"]["content"] == write_results_ecsv(table)
-    assert downloads["lmtot"]["content"] == make_lmtot_script(
-        description, author="obs_planner_simu", created_at=created_at
+    assert files["results"] == (
+        "toltec_obs_planner_results.ecsv",
+        write_results_ecsv(table),
     )
-    assert downloads["lmtot"]["filename"] == "target_09h55m52.4s-+69d40m47s.lmtot"
+    assert files["lmtot"] == (
+        "target_09h55m52.4s-+69d40m47s.lmtot",
+        make_lmtot_script(
+            plan.description, author="obs_planner_simu", created_at=created_at
+        ),
+    )
+
+
+def test_downloads_carry_the_export_files(case: tuple) -> None:
+    _, plan = case
+    created_at = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    files = make_export_files(
+        plan, apt_path=APT, coverage_unit="time", created_at=created_at
+    )
+    downloads = make_downloads(
+        plan, apt_path=APT, coverage_unit="time", created_at=created_at
+    )
+    coverage = downloads["coverage"]
+    assert (
+        coverage["filename"],
+        gzip.decompress(base64.b64decode(coverage["content_gzip"])),
+    ) == files["coverage"]
+    for kind in ("lmtot", "results"):
+        assert (downloads[kind]["filename"], downloads[kind]["content"]) == files[kind]
+
+
+def test_plan_observation_is_the_planner_computation(
+    case: tuple, planner: ToltecPlanner
+) -> None:
+    _, steps = case
+    plan = plan_observation(steps.description, planner)
+    for frame in ("coords_icrs", "coords_altaz"):
+        for axis in ("lon", "lat"):
+            np.testing.assert_array_equal(
+                getattr(getattr(plan.trajectory, frame).spherical, axis).degree,
+                getattr(getattr(steps.trajectory, frame).spherical, axis).degree,
+            )
+    created_at = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    for unit in ("depth", "time"):
+        assert make_export_files(
+            plan, apt_path=APT, coverage_unit=unit, created_at=created_at
+        ) == make_export_files(
+            steps, apt_path=APT, coverage_unit=unit, created_at=created_at
+        )

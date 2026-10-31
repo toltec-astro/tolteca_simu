@@ -13,6 +13,7 @@ gunicorn behind a reverse proxy in production.
 | Draw the sky and coverage views with a Firefly server | Set [`viewer`](#choose-the-viewer)                                                 |
 | Offer your own mapping presets                        | Set [`presets_path`](#offer-your-own-presets)                                      |
 | Plan an observation in the page                       | [Use the planner](#use-the-planner)                                                |
+| Plan an observation without the page                  | [`tolteca_simu obs_planner plan`](#plan-from-the-command-line)                     |
 
 ## Configure the planner
 
@@ -87,6 +88,50 @@ just run tolteca_simu obs_planner
 just run tolteca_simu obs_planner_serve
 just run tolteca_simu show_config
 ```
+
+## Plan from the command line
+
+`plan` computes what the page computes on Execute and writes the three files it
+offers for download, using the same settings. Give it an observation
+description:
+
+```{literalinclude} examples/observation.yaml
+:language: yaml
+```
+
+```{testcode}
+:hide:
+
+from tollan.utils.yaml import yaml_load
+from tolteca_simu.planning import ObservationDescription
+
+description = ObservationDescription.model_validate(
+    yaml_load(docs_path / "examples" / "observation.yaml")
+)
+print(description.mapping.type, description.instrument.array_name)
+```
+
+```{testoutput}
+:hide:
+
+lissajous a1100
+```
+
+```console
+tolteca_simu obs_planner plan --config_paths simu.yaml --output_path out -- observation.yaml
+```
+
+The description has the fields of
+{py:class}`~tolteca_simu.planning.ObservationDescription`. Quote the start time
+`t0`; unquoted, YAML reads it as a date and time that the description does not
+accept. A results file (`.ecsv`) written by the planner can be given instead:
+its description is planned again, as in the **Verify** tab.
+
+`--output_path` is the directory for the files, by default the current one;
+`--coverage_unit time` writes the coverage map in s/pixel instead of mJy/beam.
+Existing files are kept, and the command fails, unless you pass `--overwrite`.
+Place the observation file after `--`, which ends the list of configuration
+files.
 
 ## Choose the viewer
 

@@ -1,17 +1,14 @@
 # Plan an observation in Python
 
-The planner's results are available from Python: describe an observation, then
-compute its visibility, trajectory, coverage and sensitivity, and project time,
-and write the files the planner offers for download.
+The planner's results are available from Python: describe an observation, check
+its visibility, plan it, and write the files the planner offers for download.
 
-| Step                          | Use                                                                                                                                                                         |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Describe the observation      | {py:class}`~tolteca_simu.planning.ObservationDescription`                                                                                                                   |
-| Target elevation over the day | {py:func}`~tolteca_simu.planning.get_target_visibility`, {py:func}`~tolteca_simu.planning.get_target_uptime`                                                                |
-| Trajectory                    | {py:func}`~tolteca_simu.planning.get_trajectory`                                                                                                                            |
-| Coverage and sensitivity      | {py:class}`~tolteca_simu.toltec.planning.ToltecPlanner`                                                                                                                     |
-| Project time                  | {py:func}`~tolteca_simu.toltec.time_cost.get_time_cost`                                                                                                                     |
-| Files                         | {py:func}`~tolteca_simu.lmtot.make_lmtot_script`, {py:func}`~tolteca_simu.toltec.exports.make_results_table`, {py:func}`~tolteca_simu.toltec.exports.make_coverage_hdulist` |
+| Step                                               | Use                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Describe the observation                           | {py:class}`~tolteca_simu.planning.ObservationDescription`                                                    |
+| Target elevation over the day                      | {py:func}`~tolteca_simu.planning.get_target_visibility`, {py:func}`~tolteca_simu.planning.get_target_uptime` |
+| Trajectory, coverage and sensitivity, project time | {py:func}`~tolteca_simu.toltec.planning.plan_observation`                                                    |
+| Files                                              | {py:func}`~tolteca_simu.toltec.exports.make_export_files`                                                    |
 
 Coverage and sensitivity read the TolTEC calibration data store; the examples
 below name its root `cal_data_path`.
@@ -77,41 +74,30 @@ argument with the target at or above `alt_min`, and returns None when there is
 none. `get_target_visibility` gives the altitude over the UT day with the sunset
 and sunrise times, for plotting.
 
-## Compute coverage and sensitivity
+## Plan the observation
 
-Render the trajectory, then plan it with the TolTEC planner. The planner reads
-the calibration tables when it first needs them and keeps them for later
-observations. The defaults of
-{py:class}`~tolteca_simu.config.ToltecPlannerConfig` and
-{py:class}`~tolteca_simu.config.LmtPlannerConfig` are the production settings:
+{py:func}`~tolteca_simu.toltec.planning.plan_observation` computes what the
+planner computes on Execute: the trajectory, the coverage and sensitivity, and
+the project time. It needs a TolTEC planner, which
+{py:meth}`~tolteca_simu.core.Simu.make_toltec_planner` builds from the same
+`simu.obs_planner` settings as the planner; unset settings keep their production
+defaults:
 
 ```{testcode}
 :skipif: skip_without_cal_data
 
-from tolteca_simu.cal_data import CalDataStore
-from tolteca_simu.config import LmtPlannerConfig, ToltecPlannerConfig
-from tolteca_simu.planning import get_trajectory
-from tolteca_simu.toltec.planning import ToltecPlanner
+from tollan.config import RuntimeContext
+from tolteca_simu.core import Simu
+from tolteca_simu.toltec.planning import plan_observation
 
-trajectory = get_trajectory(
-    description.mapping,
-    description.target,
-    description.t0,
-    t_exp=description.get_t_exp(),
-    ref_frame=description.ref_frame,
-    observer=observer,
-)
-toltec_config = ToltecPlannerConfig()
-planner = ToltecPlanner(
-    CalDataStore(cal_data_path),
-    apt_path=toltec_config.apt,
-    tel_surface_rms=LmtPlannerConfig().tel_surface_rms,
-    det_noise_factors=toltec_config.det_noise_factors,
-)
-result = planner.plan(description, trajectory, observer)
+simu = Simu(RuntimeContext({"simu": {"obs_planner": {"cal_data_path": cal_data_path}}}))
+planner = simu.make_toltec_planner()
+plan = plan_observation(description, planner)
+result = plan.result
 print(f"{result.n_passes} pass of {result.t_exp}")
 for name, summary in result.summaries.items():
     print(name, f"NEFD {summary.nefd:.3f}, depth {summary.depth_rms_coadd:.3f}")
+print(f"{plan.time_cost.total_time:.2f} in {plan.time_cost.n_nights} night")
 ```
 
 ```{testoutput}
@@ -121,34 +107,30 @@ for name, summary in result.summaries.items():
 a1100 NEFD 4.926 mJy / Hz(1/2), depth 0.510 mJy
 a1400 NEFD 2.999 mJy / Hz(1/2), depth 0.310 mJy
 a2000 NEFD 1.584 mJy / Hz(1/2), depth 0.164 mJy
-```
-
-The result also holds the detector footprint on the sky, the field-of-view
-outline, the coverage map and the map depth of the selected array. See
-{py:class}`~tolteca_simu.toltec.planning.ToltecPlanningResult`.
-
-## Estimate the project time
-
-```{testcode}
-:skipif: skip_without_cal_data
-
-from tolteca_simu.toltec.time_cost import get_time_cost
-
-time_cost = get_time_cost(result.n_passes, result.t_exp, result.t_exp_eff)
-print(f"{time_cost.total_time:.2f} in {time_cost.n_nights} night")
-```
-
-```{testoutput}
-:skipif: skip_without_cal_data
-
 0.27 h in 1 night
 ```
 
-The project time adds pointing and other overheads to the science time.
+Pass `config_sources=Path("simu.yaml")` to `RuntimeContext` to use a
+configuration file. The planner reads the calibration tables when it first needs
+them and keeps them; reuse it for further observations.
+
+The {py:class}`~tolteca_simu.toltec.planning.ObservationPlan` holds the
+description, the {py:class}`~tolteca_simu.planning.Trajectory`, the
+{py:class}`~tolteca_simu.toltec.planning.ToltecPlanningResult` (detector
+footprint, field-of-view outline, coverage map, map depth and per-array
+sensitivity) and the {py:class}`~tolteca_simu.toltec.time_cost.TimeCost`, which
+adds pointing and other overheads to the science time.
+
+`plan_observation` renders the trajectory with
+{py:func}`~tolteca_simu.planning.get_trajectory`, plans it with
+{py:meth}`~tolteca_simu.toltec.planning.ToltecPlanner.plan`, and estimates the
+project time with {py:func}`~tolteca_simu.toltec.time_cost.get_time_cost`. Call
+those directly to change one step, such as the trajectory's sampling.
 
 ## Write the files
 
-These are the files the planner offers for download:
+{py:func}`~tolteca_simu.toltec.exports.make_export_files` returns the files the
+planner offers for download, by kind, each as a file name and its content:
 
 ```{testsetup}
 :skipif: skip_without_cal_data
@@ -166,29 +148,28 @@ os.chdir(output_dir.name)
 
 from datetime import UTC, datetime
 from pathlib import Path
-from tolteca_simu.lmtot import make_lmtot_script
-from tolteca_simu.toltec.exports import (
-    make_coverage_hdulist,
-    make_results_table,
-    write_results_ecsv,
-)
+from tolteca_simu.toltec.exports import make_export_files
 
-created_at = datetime.now(UTC)
-Path("obs.lmtot").write_text(
-    make_lmtot_script(description, author="Jane Observer", created_at=created_at)
+files = make_export_files(
+    plan,
+    apt_path=simu.config.obs_planner.toltec.apt,
+    coverage_unit="depth",
+    created_at=datetime.now(UTC),
 )
-table = make_results_table(
-    description, result, time_cost, toltec_config.apt, created_at
-)
-Path("results.ecsv").write_text(write_results_ecsv(table))
-make_coverage_hdulist(result, "mJy/beam").writeto("coverage.fits")
-print(table["array_name"].tolist())
+for filename, content in files.values():
+    if isinstance(content, bytes):
+        Path(filename).write_bytes(content)
+    else:
+        Path(filename).write_text(content)
+    print(filename)
 ```
 
 ```{testoutput}
 :skipif: skip_without_cal_data
 
-['a1100', 'a1400', 'a2000']
+target_09h55m52.4s-+69d40m47s.lmtot
+toltec_obs_planner_results.ecsv
+obsplanner_toltec_a1100_cov.fits
 ```
 
 ```{testcleanup}
@@ -198,12 +179,14 @@ os.chdir(previous_cwd)
 output_dir.cleanup()
 ```
 
-| File            | Contents                                                                      |
-| --------------- | ----------------------------------------------------------------------------- |
-| `obs.lmtot`     | The observation as a script for the LMT observing tool.                       |
-| `results.ecsv`  | Sensitivity and project time per array, with the description in its metadata. |
-| `coverage.fits` | Coverage images of the selected array, in `"mJy/beam"` or `"s/pixel"`.        |
+| Kind       | Contents                                                                                                              |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- |
+| `lmtot`    | The observation as a script for the LMT observing tool.                                                               |
+| `results`  | Sensitivity and project time per array, with the description in its metadata.                                         |
+| `coverage` | Coverage images of the selected array: map depth in mJy/beam (`coverage_unit="depth"`) or time in s/pixel (`"time"`). |
 
 A results file reproduces its observation:
 {py:func}`~tolteca_simu.toltec.exports.read_results_metadata` returns the
-description it records, which plans to the same results.
+description it records, which plans to the same results. To plan from the
+command line, see
+[Plan from the command line](obs-planner.md#plan-from-the-command-line).

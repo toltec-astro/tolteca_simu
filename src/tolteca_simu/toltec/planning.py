@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 import astropy.units as u
 import numpy as np
 
+from tolteca_simu.lmt import get_lmt_observer
 from tolteca_simu.mapping import RasterPattern
+from tolteca_simu.planning.trajectory import get_trajectory
 
 from .coverage import (
     CoverageMap,
@@ -26,6 +28,7 @@ from .sensitivity import (
     ToltecArrayLoadingModel,
     get_map_depth,
 )
+from .time_cost import get_time_cost
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -39,11 +42,15 @@ if TYPE_CHECKING:
     from tolteca_simu.mapping import MappingPattern
     from tolteca_simu.planning import ObservationDescription, Trajectory
 
+    from .time_cost import TimeCost
+
 __all__ = [
+    "ObservationPlan",
     "ToltecArraySummary",
     "ToltecPlanner",
     "ToltecPlanningResult",
     "get_toltec_planning_result",
+    "plan_observation",
 ]
 
 
@@ -339,3 +346,62 @@ class ToltecPlanner:
             polarized=instrument.polarized,
             desired_sens=description.desired_sens,
         )
+
+
+@dataclass(frozen=True)
+class ObservationPlan:
+    """Planning results of an observation description.
+
+    Attributes
+    ----------
+    description : tolteca_simu.planning.ObservationDescription
+        The planned observation.
+    trajectory : tolteca_simu.planning.Trajectory
+        Its boresight trajectory.
+    result : ToltecPlanningResult
+        Its TolTEC coverage and sensitivity.
+    time_cost : tolteca_simu.toltec.time_cost.TimeCost
+        Its project time.
+    """
+
+    description: ObservationDescription
+    trajectory: Trajectory
+    result: ToltecPlanningResult
+    time_cost: TimeCost
+
+
+def plan_observation(
+    description: ObservationDescription, planner: ToltecPlanner
+) -> ObservationPlan:
+    """Compute the planning results of an observation at the LMT.
+
+    This is the computation of the observation planner's Execute.
+
+    Parameters
+    ----------
+    description : tolteca_simu.planning.ObservationDescription
+        The observation, with TolTEC instrument settings.
+    planner : ToltecPlanner
+        TolTEC planning with its calibration inputs and settings.
+
+    Returns
+    -------
+    ObservationPlan
+        The trajectory, the TolTEC results and the project time.
+    """
+    observer = get_lmt_observer()
+    trajectory = get_trajectory(
+        description.mapping,
+        description.target,
+        description.t0,
+        t_exp=description.get_t_exp(),
+        ref_frame=description.ref_frame,
+        observer=observer,
+    )
+    result = planner.plan(description, trajectory, observer)
+    return ObservationPlan(
+        description=description,
+        trajectory=trajectory,
+        result=result,
+        time_cost=get_time_cost(result.n_passes, result.t_exp, result.t_exp_eff),
+    )

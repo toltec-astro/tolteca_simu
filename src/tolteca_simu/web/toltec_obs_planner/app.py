@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import astropy.units as u
 import dash
@@ -14,14 +14,12 @@ from astropy.time import Time
 from dash import Dash, Input, Output, State, ctx, dcc
 from dash_component_template import Template
 
-from tolteca_simu.cal_data import CalDataStore
 from tolteca_simu.config import FireflyViewerConfig
 from tolteca_simu.core import Simu
 from tolteca_simu.lmt import get_lmt_observer
-from tolteca_simu.planning import MappingPresets, ObservationDescription, get_trajectory
+from tolteca_simu.planning import MappingPresets, ObservationDescription
 from tolteca_simu.toltec import TOLTEC_ARRAYS
-from tolteca_simu.toltec.planning import ToltecPlanner
-from tolteca_simu.toltec.time_cost import get_time_cost
+from tolteca_simu.toltec.planning import ToltecPlanner, plan_observation
 
 from .exports import ExportsPanel, make_downloads
 from .instrument import ToltecPanel
@@ -41,9 +39,6 @@ if TYPE_CHECKING:
     from tollan.config import RuntimeContext
 
     from tolteca_simu.config import ObsPlannerConfig
-    from tolteca_simu.planning import Trajectory
-    from tolteca_simu.toltec.planning import ToltecPlanningResult
-    from tolteca_simu.toltec.time_cost import TimeCost
 
     from .views import ViewsPanel
 
@@ -80,9 +75,10 @@ def create_app(runtime: RuntimeContext) -> Dash:
     dash.Dash
         Application with its layout and callbacks; no server is started.
     """
-    config = Simu(runtime).config.obs_planner
+    simu = Simu(runtime)
+    config = simu.config.obs_planner
     _load_earth_orientation()
-    planner = ObsPlanner(config)
+    planner = ObsPlanner(config, simu.make_toltec_planner())
     # The page loads the scripts of its viewer backend only.
     if isinstance(config.viewer, FireflyViewerConfig):
         external_scripts = [f"{config.viewer.url}firefly_loader.js"]
@@ -120,19 +116,17 @@ class ObsPlanner(Template):
     Parameters
     ----------
     config : tolteca_simu.config.ObsPlannerConfig
-        Title, presets, limits, calibration data, viewer backend, and LMT and
-        TolTEC settings.
+        Title, presets, limits, viewer backend, and the array property table
+        recorded in results.
+    toltec_planner : tolteca_simu.toltec.planning.ToltecPlanner
+        The planner that computes results, as built by
+        `tolteca_simu.core.Simu.make_toltec_planner`.
     """
 
-    def __init__(self, config: ObsPlannerConfig) -> None:
+    def __init__(self, config: ObsPlannerConfig, toltec_planner: ToltecPlanner) -> None:
         super().__init__()
         self._apt_path = config.toltec.apt
-        self._toltec = ToltecPlanner(
-            CalDataStore(config.cal_data_path),
-            apt_path=config.toltec.apt,
-            tel_surface_rms=config.lmt.tel_surface_rms,
-            det_noise_factors=config.toltec.det_noise_factors,
-        )
+        self._toltec = toltec_planner
         provider = self.child[dmc.MantineProvider]()
         shell = provider.child[dmc.AppShell](header={"height": 48}, padding="md")
         header = shell.child[dmc.AppShellHeader]().child[dmc.Group](
@@ -223,22 +217,6 @@ class ObsPlanner(Template):
                 coverage_parent=coverage,
             )
         self.views = views_slot.child(views)
-
-    def _compute(
-        self, description: ObservationDescription
-    ) -> tuple[Trajectory, ToltecPlanningResult, TimeCost]:
-        observer = get_lmt_observer()
-        trajectory = get_trajectory(
-            description.mapping,
-            description.target,
-            description.t0,
-            t_exp=description.get_t_exp(),
-            ref_frame=description.ref_frame,
-            observer=observer,
-        )
-        result = self._toltec.plan(description, trajectory, observer)
-        time_cost = get_time_cost(result.n_passes, result.t_exp, result.t_exp_eff)
-        return trajectory, result, time_cost
 
     def _set_sky_target(
         self, resolved: dict | None, verify_data: dict | None
@@ -339,14 +317,15 @@ class ObsPlanner(Template):
             _verify_clicks: int | None,
             plan_data: dict | None,
             verify_data: dict | None,
-            coverage_unit: str,
+            coverage_unit: Literal["depth", "time"],
         ) -> list:
             verifying = ctx.triggered_id == self.verify.execute().id
             data = verify_data if verifying else plan_data
             if data is None:
                 return [dash.no_update] * (len(graphs) + 5)
             description = ObservationDescription.model_validate(data)
-            trajectory, result, time_cost = self._compute(description)
+            plan = plan_observation(description, self._toltec)
+            trajectory, result = plan.trajectory, plan.result
             figures = make_trajectory_figures(
                 trajectory,
                 description.ref_frame,
@@ -361,16 +340,14 @@ class ObsPlanner(Template):
                 f"of {description.desired_sens}."
             )
             downloads = make_downloads(
-                description,
-                result,
-                time_cost,
+                plan,
                 apt_path=self._apt_path,
                 coverage_unit=coverage_unit,
                 created_at=_now(),
             )
             return [
                 *(figures[key] for key in graphs),
-                make_sensitivity_tabs(result, time_cost),
+                make_sensitivity_tabs(result, plan.time_cost),
                 status,
                 self.views.make_views(
                     make_view_description(

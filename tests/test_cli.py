@@ -1,16 +1,22 @@
+import io
 import json
 from pathlib import Path
 
 import astropy.units as u
 import pytest
+from astropy.io import fits
 from dash.exceptions import PreventUpdate
 from pydantic import ValidationError
 from tollan.config import RuntimeContext
-from typer.testing import CliRunner
+from tollan.utils.yaml import yaml_load
+from typer.testing import CliRunner, Result
 
 from tolteca_simu import __version__
 from tolteca_simu.cli import app
 from tolteca_simu.core import Simu
+from tolteca_simu.planning import ObservationDescription
+from tolteca_simu.toltec.exports import make_coverage_hdulist, read_results_metadata
+from tolteca_simu.toltec.planning import plan_observation
 from tolteca_simu.web.toltec_obs_planner import create_app
 from tolteca_simu.web.toltec_obs_planner.app import ObsPlanner
 
@@ -128,7 +134,8 @@ def test_presets_follow_the_instrument_settings(cal_data_path: Path) -> None:
         {"simu": {"obs_planner": {"cal_data_path": cal_data_path}}}
     )
     # The callback body is the panel's private method.
-    mapping = ObsPlanner(Simu(runtime).config.obs_planner).mapping
+    simu = Simu(runtime)
+    mapping = ObsPlanner(simu.config.obs_planner, simu.make_toltec_planner()).mapping
     apply_conditions = mapping._apply_conditions  # noqa: SLF001
     # Before the page publishes the instrument settings, nothing changes.
     with pytest.raises(PreventUpdate):
@@ -152,3 +159,102 @@ def test_presets_follow_the_instrument_settings(cal_data_path: Path) -> None:
         False,
         "altaz",
     )
+
+
+# The description of the v1-compared case of test_toltec.py, as a user writes
+# it. YAML reads an unquoted ISO time as a datetime, so t0 is quoted.
+OBSERVATION_YAML = """\
+target_name: M82
+target: 09h55m52.4s +69d40m47s
+t0: '2026-01-15T06:00:00'
+mapping:
+  type: lissajous
+  x_length: 4 arcmin
+  y_length: 4 arcmin
+  x_omega: 0.5187711877562599 rad / s
+  y_omega: 0.3990547598125076 rad / s
+  delta: 45 deg
+  rot: 0 deg
+ref_frame: altaz
+t_exp: 10 min
+atm_model_name: am_q25
+instrument:
+  polarized: false
+  array_name: a1100
+desired_sens: 1 mJy
+"""
+PLAN_FILES = [
+    "target_M82.lmtot",
+    "toltec_obs_planner_results.ecsv",
+    "obsplanner_toltec_a1100_cov.fits",
+]
+
+
+def _plan(tmp_path: Path, cal_data_path: Path, *args: str) -> Result:
+    config_path = tmp_path / "simu.yaml"
+    config_path.write_text(
+        f"simu:\n  obs_planner:\n    cal_data_path: {cal_data_path}\n"
+    )
+    return CliRunner().invoke(
+        app, ["obs_planner", "plan", "--config_paths", str(config_path), *args]
+    )
+
+
+def test_plan_writes_the_planner_files(tmp_path: Path, cal_data_path: Path) -> None:
+    observation = tmp_path / "observation.yaml"
+    observation.write_text(OBSERVATION_YAML)
+    output = tmp_path / "out"
+    result = _plan(
+        tmp_path, cal_data_path, "--output_path", str(output), "--", str(observation)
+    )
+    assert result.exit_code == 0, result.output
+    assert sorted(p.name for p in output.iterdir()) == sorted(PLAN_FILES)
+    description = ObservationDescription.model_validate(yaml_load(observation))
+    runtime = RuntimeContext(
+        {"simu": {"obs_planner": {"cal_data_path": cal_data_path}}}
+    )
+    plan = plan_observation(description, Simu(runtime).make_toltec_planner())
+    reloaded, _ = read_results_metadata((output / PLAN_FILES[1]).read_text())
+    assert reloaded == description
+    buffer = io.BytesIO()
+    make_coverage_hdulist(plan.result, "depth").writeto(buffer)
+    assert (output / PLAN_FILES[2]).read_bytes() == buffer.getvalue()
+
+
+def test_plan_replans_a_results_file(tmp_path: Path, cal_data_path: Path) -> None:
+    observation = tmp_path / "observation.yaml"
+    observation.write_text(OBSERVATION_YAML)
+    first, second = tmp_path / "first", tmp_path / "second"
+    _plan(tmp_path, cal_data_path, "--output_path", str(first), "--", str(observation))
+    results = first / PLAN_FILES[1]
+    result = _plan(
+        tmp_path,
+        cal_data_path,
+        "--output_path",
+        str(second),
+        "--coverage_unit",
+        "time",
+        "--",
+        str(results),
+    )
+    assert result.exit_code == 0, result.output
+    description, _ = read_results_metadata(results.read_text())
+    replanned, _ = read_results_metadata((second / PLAN_FILES[1]).read_text())
+    assert replanned == description
+    hdulist = fits.open(io.BytesIO((second / PLAN_FILES[2]).read_bytes()))
+    assert hdulist["cov_raw"].header["BUNIT"] == "s / pix"
+
+
+def test_plan_keeps_existing_files(tmp_path: Path, cal_data_path: Path) -> None:
+    observation = tmp_path / "observation.yaml"
+    observation.write_text(OBSERVATION_YAML)
+    output = tmp_path / "out"
+    args = ["--output_path", str(output), "--", str(observation)]
+    _plan(tmp_path, cal_data_path, *args)
+    script = (output / PLAN_FILES[0]).read_text()
+    result = _plan(tmp_path, cal_data_path, *args)
+    assert result.exit_code != 0
+    assert "--overwrite" in result.output
+    assert (output / PLAN_FILES[0]).read_text() == script
+    result = _plan(tmp_path, cal_data_path, "--overwrite", *args)
+    assert result.exit_code == 0, result.output
