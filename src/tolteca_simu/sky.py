@@ -98,6 +98,28 @@ class SkyBoundingBox:
             lon_wrap_angle=lon_wrap_angle,
         )
 
+    @classmethod
+    def from_wcs(cls, wcs: WCS, shape: tuple[int, int]) -> "SkyBoundingBox":
+        """Return the box enclosing the corner pixels of an image.
+
+        Parameters
+        ----------
+        wcs : astropy.wcs.WCS
+            Celestial WCS of the image.
+        shape : tuple of int
+            Image shape ``(ny, nx)``.
+
+        Returns
+        -------
+        SkyBoundingBox
+            The box enclosing the centers of the four corner pixels.
+        """
+        ny, nx = shape
+        lon, lat = wcs.wcs_pix2world(
+            np.array([0, 0, nx - 1, nx - 1]), np.array([0, ny - 1, 0, ny - 1]), 0
+        )
+        return cls.from_lonlat(Longitude(lon << u.deg), Latitude(lat << u.deg))
+
     def pad_with(self, dx: Angle, dy: Angle) -> "SkyBoundingBox":
         """Return the box padded on each side.
 

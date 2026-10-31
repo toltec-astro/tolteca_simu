@@ -1,7 +1,7 @@
 """Telescope trajectory of an observation."""
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import astropy.units as u
 import numpy as np
@@ -9,10 +9,14 @@ from astroplan import Observer
 from astropy.coordinates import ICRS, SkyCoord
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator, erfa_astrom
 from astropy.time import Time
+from scipy.interpolate import interp1d
 
 from tolteca_simu.mapping import MappingPattern, RasterPattern
 
-__all__ = ["Trajectory", "get_trajectory"]
+if TYPE_CHECKING:
+    from tolteca_datamodels.lmt.tel import LmtTelAccessor
+
+__all__ = ["Trajectory", "get_tel_trajectory", "get_trajectory"]
 
 _F_SMP_DEFAULT = 10 << u.Hz
 _N_SAMPLES_MIN = 100
@@ -23,7 +27,10 @@ _ERFA_INTERPOLATION_INTERVAL = 300 << u.s
 
 @dataclass(frozen=True)
 class Trajectory:
-    """Boresight trajectory of a mapping pattern rendered around a target.
+    """Boresight trajectory of an observation.
+
+    The trajectory is rendered from a mapping pattern around a target, or
+    replayed from a telescope file.
 
     Attributes
     ----------
@@ -32,7 +39,7 @@ class Trajectory:
     time : astropy.time.Time
         Absolute times.
     dlon, dlat : astropy.units.Quantity
-        Pattern offsets in the reference frame.
+        Boresight offsets from the target in the reference frame.
     coords : astropy.coordinates.SkyCoord
         Boresight in the reference frame.
     coords_icrs : astropy.coordinates.SkyCoord
@@ -42,7 +49,8 @@ class Trajectory:
     target_altaz : astropy.coordinates.SkyCoord
         Target in horizon coordinates.
     turnaround : numpy.ndarray
-        True where a raster turns around between scans.
+        True off scan: where a raster turns around between scans, or where a
+        telescope file records a nonzero hold flag.
     """
 
     t: u.Quantity
@@ -120,4 +128,71 @@ def get_trajectory(  # noqa: PLR0913
         coords_altaz=coords_altaz,
         target_altaz=target_altaz,
         turnaround=turnaround,
+    )
+
+
+def get_tel_trajectory(
+    tel: "LmtTelAccessor",
+    *,
+    observer: Observer,
+    t: u.Quantity | None = None,
+) -> Trajectory:
+    """Replay the boresight trajectory recorded in an LMT telescope file.
+
+    Parameters
+    ----------
+    tel : tolteca_datamodels.lmt.tel.LmtTelAccessor
+        The ``lmt_tel`` accessor of a telescope dataset opened with
+        `tolteca_datamodels.lmt.open_lmt_tel`. Its times, positions and hold
+        flags are read, so the dataset stays open until this returns.
+    observer : astroplan.Observer
+        The observing site.
+    t : astropy.units.Quantity, optional
+        Times since the first telescope sample. By default, the telescope
+        samples themselves.
+
+    Returns
+    -------
+    Trajectory
+        The trajectory in ICRS, its reference frame, and in horizon coordinates,
+        around the file's main target. At requested times, positions interpolate
+        linearly between samples and hold flags take the nearest sample.
+
+    Raises
+    ------
+    ValueError
+        If a requested time is outside the recorded samples.
+    """
+    tel_time = tel.tel_time.to_numpy()
+    t_tel = tel_time - tel_time[0]
+    # Interpolating continuous right ascensions keeps the samples on either
+    # side of 0h together.
+    ra_deg = np.unwrap(np.degrees(tel.ra.to_numpy()), period=360.0)
+    dec_deg = np.degrees(tel.dec.to_numpy())
+    hold_flag = tel.hold_flag.to_numpy()
+    if t is None:
+        t = t_tel << u.s
+    else:
+        t_s = t.to_value(u.s)
+        ra_deg = interp1d(t_tel, ra_deg)(t_s)
+        dec_deg = interp1d(t_tel, dec_deg)(t_s)
+        hold_flag = interp1d(t_tel, hold_flag, kind="nearest")(t_s)
+    time = Time(tel_time[0], format="unix") + t
+    target = tel.meta.target
+    coords_icrs = SkyCoord(ra_deg << u.deg, dec_deg << u.deg, frame="icrs")
+    offsets = coords_icrs.transform_to(target.skyoffset_frame())
+    altaz_frame = observer.altaz(time=time)
+    with erfa_astrom.set(ErfaAstromInterpolator(_ERFA_INTERPOLATION_INTERVAL)):
+        coords_altaz = coords_icrs.transform_to(altaz_frame)
+        target_altaz = target.transform_to(altaz_frame)
+    return Trajectory(
+        t=t,
+        time=time,
+        dlon=offsets.lon,
+        dlat=offsets.lat,
+        coords=coords_icrs,
+        coords_icrs=coords_icrs,
+        coords_altaz=coords_altaz,
+        target_altaz=target_altaz,
+        turnaround=hold_flag != 0,
     )

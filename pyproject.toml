@@ -111,6 +111,9 @@ addopts = ["-ra", "--showlocals", "--doctest-rst"]
 strict = true
 filterwarnings = [
   "error",
+  # netCDF4, used by tolteca_datamodels to open telescope files, warns on
+  # import about the numpy binary interface; tolteca ignores it the same way.
+  "ignore:numpy.ndarray size changed:RuntimeWarning",
 ]
 log_level = "INFO"
 # pytest-doctestplus runs the `>>>` examples in docstrings and .rst pages.

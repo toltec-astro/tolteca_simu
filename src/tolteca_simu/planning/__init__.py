@@ -2,7 +2,7 @@
 
 from .description import ObservationDescription, parse_target
 from .presets import MappingPreset, MappingPresets, PresetParam
-from .trajectory import Trajectory, get_trajectory
+from .trajectory import Trajectory, get_tel_trajectory, get_trajectory
 from .visibility import (
     TargetUptime,
     TargetVisibility,
@@ -20,6 +20,7 @@ __all__ = [
     "Trajectory",
     "get_target_uptime",
     "get_target_visibility",
+    "get_tel_trajectory",
     "get_trajectory",
     "parse_target",
 ]

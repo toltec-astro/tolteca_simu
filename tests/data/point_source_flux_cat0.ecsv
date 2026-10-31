@@ -1,0 +1,14 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: name, datatype: string}
+# - {name: ra, datatype: float64}
+# - {name: dec, datatype: float64}
+# - {name: flux_a1100, datatype: int64}
+# - {name: flux_a1400, datatype: int64}
+# - {name: flux_a2000, datatype: int64}
+# schema: astropy-2.0
+name ra dec flux_a1100 flux_a1400 flux_a2000
+src0 180.0 0.0 20 20 20
+src1 180.01 0.0 20 20 20
+src2 180.01 -0.01 20 20 20
