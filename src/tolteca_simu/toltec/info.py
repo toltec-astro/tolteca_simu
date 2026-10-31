@@ -12,6 +12,7 @@ import astropy.units as u
 __all__ = ["TOLTEC_ARRAYS", "TOLTEC_PLATE_SCALE", "ToltecArrayInfo", "ToltecArrayName"]
 
 type ToltecArrayName = Literal["a1100", "a1400", "a2000"]
+"""Names of the TolTEC arrays: ``a1100``, ``a1400`` and ``a2000``."""
 
 # The beam FWHM is 5 arcsec at 1.1 mm and scales with wavelength.
 _FWHM_A1100 = 5.0 << u.arcsec

@@ -10,7 +10,8 @@ from astropy.coordinates import EarthLocation
 __all__ = ["LmtAtmModelName", "get_lmt_observer"]
 
 type LmtAtmModelName = Literal["am_q25", "am_q50", "am_q75"]
-"""Names of the LMT am atmosphere models: quartiles of the conditions."""
+"""Names of the LMT am atmosphere models, quartiles of the conditions: ``am_q25``,
+``am_q50`` and ``am_q75``."""
 
 # LMT site facts, the same values as tolteca's
 # `tolteca_datamodels.lmt.types.LmtInfo`. They are kept here until tolteca is

@@ -4,6 +4,8 @@
 :maxdepth: 2
 :hidden:
 
+modules
+models
 ```
 
 ```{include} ../README.md

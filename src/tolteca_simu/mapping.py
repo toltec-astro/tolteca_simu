@@ -817,3 +817,4 @@ type MappingPattern = Annotated[
     RasterPattern | LissajousPattern | DoubleLissajousPattern | RastajousPattern,
     Field(discriminator="type"),
 ]
+"""A mapping pattern, chosen by its ``type``."""
