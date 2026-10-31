@@ -1,0 +1,14 @@
+# %ECSV 1.0
+# ---
+# datatype:
+# - {name: source_name, datatype: string}
+# - {name: ra, unit: deg, datatype: float64}
+# - {name: dec, unit: deg, datatype: float64}
+# - {name: flux_a1100, unit: mJy, datatype: float64}
+# - {name: flux_a1400, unit: mJy, datatype: float64}
+# - {name: flux_a2000, unit: mJy, datatype: float64}
+# meta: {comment: Point sources inside the field of LMT scan 145609-0-2 (target 04h49m23.3s +63d32m09.4s).}
+source_name ra dec flux_a1100 flux_a1400 flux_a2000
+center 72.34708 63.53594 50.0 30.0 15.0
+east 72.38458 63.54428 20.0 12.0 6.0
+southwest 72.29083 63.51928 10.0 6.0 3.0

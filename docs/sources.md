@@ -171,5 +171,49 @@ print(trajectory.t.size, trajectory.turnaround.sum())
 
 Without `t`, the trajectory has the file's own samples. Times are seconds from
 the first sample; times outside the file raise `ValueError`. Samples where the
-telescope recorded a hold are marked in `turnaround`. Evaluate sources along the
-trajectory with its `coords_icrs`.
+telescope recorded a hold are marked in `turnaround`.
+
+## Detectors along a trajectory
+
+{py:func}`~tolteca_simu.toltec.get_detector_positions` places detectors along a
+planned or replayed boresight trajectory. It takes each detector's offset in the
+TolTEC frame, the `x_t` and `y_t` columns of an array property table, and
+returns horizon and ICRS positions with one row per detector and one column per
+time. The example places all detectors of the production array property table
+along the first 2 s of the replayed scan, then evaluates a source at the
+detector positions, with each detector's array name as its label:
+
+```{testcode}
+:skipif: skip_without_data_lmt or skip_without_cal_data
+
+from tolteca_simu.cal_data import CalDataStore
+from tolteca_simu.config import ToltecPlannerConfig
+from tolteca_simu.toltec import TOLTEC_ARRAYS, get_detector_positions
+
+apt = CalDataStore(cal_data_path).get_toltec_apt(ToltecPlannerConfig().apt)
+t = np.arange(0, 2, 1 / 122.0703125) << u.s
+trajectory = get_tel_trajectory(tel, observer=observer, t=t)
+positions = get_detector_positions(apt["x_t"], apt["y_t"], trajectory)
+
+array_names = {array.index: name for name, array in TOLTEC_ARRAYS.items()}
+labels = [array_names[index] for index in apt["array"]]
+catalog = PointSourceCatalog.from_table(
+    Table({"ra": [72.34708] * u.deg, "dec": [63.53594] * u.deg, "flux_a1100": [50.0] * u.mJy}),
+    flux_columns={"a1100": "flux_a1100"},
+)
+source = catalog.make_image_source({"a1100": TOLTEC_ARRAYS["a1100"].a_fwhm})
+signal = source.evaluate(labels, positions.coords_icrs.ra, positions.coords_icrs.dec)
+print(signal.shape, f"{signal.max():.1f}")
+```
+
+```{testoutput}
+:skipif: skip_without_data_lmt or skip_without_cal_data
+
+(3553, 245) 45.6 MJy / sr
+```
+
+The detectors turn with the boresight elevation, as the TolTEC field of view
+does on the sky. Evaluation at each time is independent, so you can split a long
+observation into time ranges and join the results. Each time range of all
+detectors takes memory in proportion to its number of positions, about 0.5 kB
+per detector and time.
