@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.metadata
 import os
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sphinx.addnodes import pending_xref
@@ -171,3 +172,28 @@ warnings.filterwarnings("error", category=UserWarning, module=r"numpydoc\.docscr
 # only runs explicit testcode blocks, which is how Markdown guides carry runnable
 # examples, so every example is run by exactly one tool.
 doctest_test_doctest_blocks = ""
+
+# Guide examples that read the calibration data store or reference observations
+# use the test suite's locations, and skip without the data as the tests do. A
+# skipped block is dropped from every builder's output, so only the doc-test
+# recipe, which sets the "doctest" tag, skips them; other builds keep them.
+_PYTHON_PATH = Path(__file__).resolve().parents[2]
+# Sphinx defines tags in this file's namespace.
+_SKIP_WITHOUT_DATA = tags.has("doctest")  # noqa: F405
+doctest_global_setup = f"""
+import os
+from pathlib import Path
+
+docs_path = Path({str(Path(__file__).resolve().parent)!r})
+cal_data_path = Path(os.environ.get(
+    "TOLTECA_SIMU_CAL_DATA_PATH", {str(_PYTHON_PATH / "tolteca_cal_data")!r}
+))
+data_lmt_path = Path(os.environ.get(
+    "TOLTECA_SIMU_DATA_LMT_PATH",
+    {str(_PYTHON_PATH / "toltec_astro_dev" / "run" / "data_lmt")!r},
+))
+skip_without_cal_data = {_SKIP_WITHOUT_DATA} and not (
+    cal_data_path / "manifest.json"
+).exists()
+skip_without_data_lmt = {_SKIP_WITHOUT_DATA} and not (data_lmt_path / "tel").is_dir()
+"""

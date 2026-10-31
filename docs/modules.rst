@@ -7,6 +7,8 @@ Observation planning
 .. automodapi:: tolteca_simu.planning
    :skip: MappingPreset, MappingPresets, ObservationDescription, PresetParam
 
+.. autofunction:: tolteca_simu.planning.presets.get_default_presets_path
+
 .. automodapi:: tolteca_simu.mapping
    :skip: DoubleLissajousPattern, LissajousPattern, RastajousPattern, RasterPattern
 

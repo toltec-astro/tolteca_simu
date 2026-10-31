@@ -1,0 +1,10 @@
+simu:
+  obs_planner:
+    # Required: the root of the TolTEC calibration data store.
+    cal_data_path: /path/to/tolteca_cal_data
+    title: TolTEC Observation Planner
+    subtitle: Large Program 2026
+    # Lowest elevation counted as observable.
+    target_alt_min: 30 deg
+    server:
+      port: 8054

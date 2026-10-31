@@ -1,0 +1,21 @@
+presets:
+  - key: compact_lissajous
+    label: "Compact: 3 x 3 arcmin² lissajous, 5 min"
+    conditions:
+      polarized: false
+    description: A Lissajous pattern for a compact source.
+    pattern: lissajous
+    params:
+      speed_lissajous:
+        value: 40.0
+        unit: arcsec/s
+        min: 10.0
+        max: 60.0
+        description: Average speed of the pattern.
+      x_length: { value: 3.0, unit: arcmin, min: 1.0, max: 6.0 }
+      y_length: { value: 3.0, unit: arcmin, min: 1.0, max: 6.0 }
+      x_omega: { value: 5.2, unit: rad/s, editable: false, visible: false }
+      y_omega: { value: 4.0, unit: rad/s, editable: false, visible: false }
+      delta: { value: 45.0, unit: deg, editable: false, visible: false }
+      rot: { value: 0.0, unit: deg, min: 0.0, max: 360.0 }
+      t_exp: { value: 5.0, unit: min, min: 1.0, max: 30.0 }

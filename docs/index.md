@@ -3,6 +3,18 @@
 ```{toctree}
 :maxdepth: 2
 :hidden:
+:caption: Guides
+
+obs-planner
+mapping
+planning
+sources
+```
+
+```{toctree}
+:maxdepth: 2
+:hidden:
+:caption: Reference
 
 modules
 models

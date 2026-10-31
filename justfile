@@ -38,10 +38,11 @@ doc-build:
 # and the run stays offline. Every page is read again (-E), as in doc-build:
 # state saved before an API page existed makes the run fail on its stubs.
 #
-# Run the testcode examples in the docs
+# Run the testcode examples in the docs. The doctest tag lets examples that need
+# the calibration data store or reference observations skip without them.
 doc-test:
     rm -rf docs/api
-    "${UV_PROJECT_ENVIRONMENT:?Load the deployment location .envrc}"/bin/sphinx-build -W --keep-going -T -E -b doctest -D disable_intersphinx=1 docs docs/_build/doctest
+    "${UV_PROJECT_ENVIRONMENT:?Load the deployment location .envrc}"/bin/sphinx-build -W --keep-going -T -E -b doctest -t doctest -D disable_intersphinx=1 docs docs/_build/doctest
 
 # Serve the docs locally, rebuilding on change
 doc:
