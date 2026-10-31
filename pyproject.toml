@@ -28,7 +28,8 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "tollan",
+  # Not on PyPI; follow its development branch.
+  "tollan @ git+https://github.com/toltec-astro/tollan.git@v3.x",
   "astropy",
   "astroplan",
   "numpy",
@@ -38,7 +39,8 @@ dependencies = [
   "rich",
   "dash>=4.4.1",
   "dash-mantine-components",
-  "dash-component-template",
+  # v1 is not on PyPI (the name there holds 0.2); follow its development branch.
+  "dash_component_template @ git+https://github.com/toltec-astro/dash_component_template.git@v1.x",
   # v2 is not on PyPI (the name there holds v1); follow its development branch.
   "dash_aladin_lite @ git+https://github.com/toltec-astro/dash_aladin_lite.git@v2.x",
   "plotly",
