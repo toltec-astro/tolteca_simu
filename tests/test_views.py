@@ -211,6 +211,9 @@ V1_FOV_DEG = {
     "toltec_blank_field_lissajous": 0.3630524050266983,
     "toltec_blank_field_rastajous": 0.587276048312161,
 }
+# The size follows the horizon frame, which moves with each Earth orientation
+# (IERS) update for that date: 1.1e-9 relative with the table of 2026-10-31.
+V1_FOV_RTOL = 1e-8
 
 
 @pytest.mark.parametrize(("key", "fov"), V1_FOV_DEG.items())
@@ -245,4 +248,4 @@ def test_view_size_matches_v1(cal_data_path: Path, key: str, fov: float) -> None
     )
     result = planner.plan(description, trajectory, observer)
     size = make_view_description(description.target, trajectory, result, "depth")
-    assert size["size_deg"] == pytest.approx(fov, rel=1e-12)
+    assert size["size_deg"] == pytest.approx(fov, rel=V1_FOV_RTOL)
