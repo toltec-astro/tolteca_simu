@@ -213,7 +213,8 @@ print(signal.shape, f"{signal.max():.1f}")
 ```
 
 The detectors turn with the boresight elevation, as the TolTEC field of view
-does on the sky. Evaluation at each time is independent, so you can split a long
-observation into time ranges and join the results. Each time range of all
-detectors takes memory in proportion to its number of positions, about 0.5 kB
-per detector and time.
+does on the sky.
+
+Positions at each time depend on that time only, so you can evaluate a long
+observation in time chunks and join the results. Memory grows with the number of
+positions in a chunk, about 0.13 kB per detector and sample.

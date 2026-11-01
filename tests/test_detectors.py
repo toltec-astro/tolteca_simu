@@ -6,6 +6,7 @@ import astropy.units as u
 import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
+from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator, erfa_astrom
 from astropy.table import QTable
 from astropy.time import Time
 
@@ -34,6 +35,9 @@ POSITION_ATOL_DEG = 1e-8
 # Catalog images match v1 within this relative tolerance (see test_sources.py).
 SURFACE_BRIGHTNESS_RTOL = 1e-9
 ARRAY_NAMES = {array.index: name for name, array in TOLTEC_ARRAYS.items()}
+# The fitted map from horizon to ICRS offsets reproduces transforming each
+# position on its own to within 1e-13 deg (measured, 2026-10-31).
+PER_POSITION_ATOL_DEG = 1e-12
 
 
 @pytest.fixture(scope="module")
@@ -158,3 +162,29 @@ def test_positions_follow_the_detector_order(apt: QTable, planned: Trajectory) -
     np.testing.assert_array_equal(
         reversed_.coords_icrs.ra.degree, positions.coords_icrs.ra.degree[::-1]
     )
+
+
+@pytest.mark.parametrize("name", ["replayed", "planned"])
+def test_positions_equal_per_position_transforms(
+    apt: QTable, name: str, request: pytest.FixtureRequest
+) -> None:
+    trajectory: Trajectory = request.getfixturevalue(name)
+    positions = get_detector_positions(apt["x_t"], apt["y_t"], trajectory)
+    # Each detector and time transformed on its own, through astropy's frames.
+    altaz = trajectory.coords_altaz
+    alt = altaz.alt.radian
+    x = apt["x_t"][:, np.newaxis]
+    y = apt["y_t"][:, np.newaxis]
+    with erfa_astrom.set(ErfaAstromInterpolator(300 << u.s)):
+        expected_altaz = SkyCoord(
+            np.cos(alt) * x - np.sin(alt) * y,
+            np.sin(alt) * x + np.cos(alt) * y,
+            frame=altaz.skyoffset_frame(),
+        ).transform_to(altaz.frame)
+        expected_icrs = expected_altaz.transform_to("icrs")
+    for frame, expected in (
+        ("coords_altaz", expected_altaz),
+        ("coords_icrs", expected_icrs),
+    ):
+        separation = getattr(positions, frame).separation(expected)
+        assert separation.max().to_value(u.deg) < PER_POSITION_ATOL_DEG, frame
