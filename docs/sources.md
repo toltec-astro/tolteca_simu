@@ -218,3 +218,104 @@ does on the sky.
 Positions at each time depend on that time only, so you can evaluate a long
 observation in time chunks and join the results. Memory grows with the number of
 positions in a chunk, about 0.13 kB per detector and sample.
+
+## Detector signals
+
+{py:func}`~tolteca_simu.toltec.get_detector_loading` returns the optical power
+on each detector along its positions: the source seen through the atmosphere,
+and the atmosphere and instrument background at the detector's altitude, from
+the loading model of each array. It also returns the standard deviation of the
+white power noise per sample, and
+{py:func}`~tolteca_simu.toltec.realize_power_noise` draws that noise from a
+seed. The example continues with the positions and signal above, under the
+median LMT atmosphere, with the planner's loading models:
+
+```{testcode}
+:skipif: skip_without_data_lmt or skip_without_cal_data
+
+from tollan.config import RuntimeContext
+from tolteca_simu.core import Simu
+from tolteca_simu.toltec import get_detector_loading, realize_power_noise
+
+simu = Simu(RuntimeContext({"simu": {"obs_planner": {"cal_data_path": cal_data_path}}}))
+loading_models = simu.make_toltec_planner().get_loading_models("am_q50")
+f_smp = 122.0703125 * u.Hz
+loading = get_detector_loading(
+    labels, positions.coords_altaz.alt, signal, loading_models, f_smp
+)
+noise = realize_power_noise(
+    loading.power_noise, seed=1, detector_keys=apt["uid"], sample_start=0
+)
+power = loading.power + noise
+a1100 = np.asarray(labels) == "a1100"
+print(f"{loading.power[a1100].mean():.2f}", f"{loading.power_noise[a1100].mean().to(u.aW):.0f}")
+```
+
+```{testoutput}
+:skipif: skip_without_data_lmt or skip_without_cal_data
+
+15.68 pW 2087 aW
+```
+
+The noise of each sample depends only on the seed, the detector key and the
+sample index within the run, so a run evaluated in time chunks, each with its
+own `sample_start`, gives the same noise as a whole run.
+
+{py:func}`~tolteca_simu.toltec.get_kids_signals` turns the power into the KIDs
+detuning `x`, loss `r` and readout signal, through a KIDs model table of
+TolTECA's physical model families, such as a model fit writes for a tune. The
+table has one row per detector, in detector order. `power_ref` is each
+detector's power when the model was measured; here the tune is at the first
+sample. The detuning follows the power with the detector's responsivity, and
+TolTECA's timestream solver recovers `x` and `r` from the signal with the same
+table:
+
+```{testcode}
+:hide:
+:skipif: skip_without_data_lmt or skip_without_cal_data
+
+_f = np.asarray(apt["tone_freq"], float)
+_n = len(_f)
+model_params = Table({
+    "chan": np.arange(_n), "f_in": _f, "f_g": _f, "fr": _f,
+    "r": np.full(_n, 2.5e-5), "c_re": np.full(_n, 2e-5), "c_im": np.zeros(_n),
+    "H0_re": np.full(_n, 1e4), "H0_im": np.zeros(_n),
+    "H1_re": np.zeros(_n), "H1_im": np.zeros(_n),
+})
+for _c in ("f_in", "f_g", "fr"):
+    model_params[_c].unit = u.Hz
+for _c in ("H1_re", "H1_im"):
+    model_params[_c].unit = "1 / Hz"
+model_params.meta["model_schema"] = {
+    "name": "KidsSweepWithAffineGain",
+    "version": 1,
+    "parameters": [
+        {"name": _c, "unit": {"fr": "Hz", "f_g": "Hz", "H1_re": "1 / Hz", "H1_im": "1 / Hz"}.get(_c, "")}
+        for _c in ("f_g", "fr", "r", "c_re", "c_im", "H0_re", "H0_im", "H1_re", "H1_im")
+    ],
+}
+```
+
+```{testcode}
+:skipif: skip_without_data_lmt or skip_without_cal_data
+
+from tolteca_kidsproc.timestream import TimestreamSolver
+from tolteca_simu.toltec import get_kids_signals
+
+responsivity = [TOLTEC_ARRAYS[name].responsivity.value for name in labels] / u.pW
+signals = get_kids_signals(power, loading.power[:, 0], responsivity, model_params)
+r, x, flags = TimestreamSolver(model_params, model_params["chan"])(
+    signals.iq.real.T, signals.iq.imag.T
+)
+print(signals.iq.shape, np.allclose(x.T, signals.x, rtol=0, atol=1e-12))
+```
+
+```{testoutput}
+:skipif: skip_without_data_lmt or skip_without_cal_data
+
+(3553, 245) True
+```
+
+The responsivities of {py:data}`~tolteca_simu.toltec.info.TOLTEC_ARRAYS` are
+typical values per array, until detector calibrations provide them per detector.
+`get_kids_signals` requires TolTECA's `tolteca_kidsproc`.

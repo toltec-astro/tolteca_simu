@@ -1,4 +1,4 @@
-"""TolTEC array facts used for planning.
+"""TolTEC array facts used for planning and simulation.
 
 These values follow v1 tolteca (``common/toltec`` and ``simu/toltec/toltec_info``)
 until TolTECA gives them an owner.
@@ -38,6 +38,10 @@ class ToltecArrayInfo:
         Band center wavelength.
     mounting_angle : astropy.units.Quantity
         Rotation of the array in the instrument frame.
+    responsivity : astropy.units.Quantity
+        Typical detector responsivity: change of the KIDs detuning ``x`` per
+        absorbed optical power. Provisional, until detector calibrations
+        provide per-detector values.
     """
 
     name: ToltecArrayName
@@ -45,6 +49,7 @@ class ToltecArrayInfo:
     name_long: str
     wl_center: u.Quantity
     mounting_angle: u.Quantity
+    responsivity: u.Quantity
 
     @property
     def a_fwhm(self) -> u.Quantity:
@@ -59,13 +64,28 @@ class ToltecArrayInfo:
 
 TOLTEC_ARRAYS: dict[ToltecArrayName, ToltecArrayInfo] = {
     "a1100": ToltecArrayInfo(
-        "a1100", 0, "TolTEC 1.1 mm array", 1.1 << u.mm, 90.0 << u.deg
+        "a1100",
+        0,
+        "TolTEC 1.1 mm array",
+        1.1 << u.mm,
+        90.0 << u.deg,
+        5.794e-5 << 1 / u.pW,
     ),
     "a1400": ToltecArrayInfo(
-        "a1400", 1, "TolTEC 1.4 mm array", 1.4 << u.mm, -90.0 << u.deg
+        "a1400",
+        1,
+        "TolTEC 1.4 mm array",
+        1.4 << u.mm,
+        -90.0 << u.deg,
+        1.1e-4 << 1 / u.pW,
     ),
     "a2000": ToltecArrayInfo(
-        "a2000", 2, "TolTEC 2.0 mm array", 2.0 << u.mm, -90.0 << u.deg
+        "a2000",
+        2,
+        "TolTEC 2.0 mm array",
+        2.0 << u.mm,
+        -90.0 << u.deg,
+        1.1e-4 << 1 / u.pW,
     ),
 }
 """The TolTEC arrays by name, in index order."""

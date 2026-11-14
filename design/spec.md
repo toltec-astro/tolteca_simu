@@ -229,8 +229,14 @@ decision.
   does not change the result.
 - Random realizations, such as the atmosphere, are reproducible from recorded
   seeds.
-- The time-domain atmosphere comes from the TOAST backend. The KIDs detector
-  response converts optical power to recorded readout signals.
+- The time-domain atmosphere comes from the TOAST backend.
+- Detector power combines the sources seen through the atmosphere, the
+  atmosphere and instrument background, and white power noise, from the same
+  loading model as planning.
+- The KIDs detector response follows TolTECA's physical KIDs models. A KIDs
+  model table describes the detectors at a reference loading; the reduction's
+  timestream solver, given the same table, recovers the simulated detector state
+  from the readout signal.
 
 ## Signal injection (later scope)
 
@@ -272,7 +278,7 @@ decision.
 
 ## Deferred
 
-- Synthetic acquisition layout, writers, and the KIDs forward model.
+- Synthetic acquisition layout and writers.
 - How job keys map to TolTECA data-product identifiers.
 - Parts of v1 outside the planner slice: `simu0`, the SEQUOIA simulator, and the
   timestream projection.

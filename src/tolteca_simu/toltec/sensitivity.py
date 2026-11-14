@@ -20,7 +20,7 @@ import numpy as np
 from astropy.constants import codata2018 as const
 from astropy.cosmology import default_cosmology
 from astropy.modeling.functional_models import GAUSSIAN_SIGMA_TO_FWHM
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import BSpline, RectBivariateSpline
 
 if TYPE_CHECKING:
     from astropy.table import QTable
@@ -59,6 +59,15 @@ _T_DET_WARM = _T_WARM * _COLD_EFFICIENCY
 _T_DET_COLDBOX = (
     _T_COLDBOX * _DET_OPTICAL_EFFICIENCY * (1.0 - _HORN_APERTURE_EFFICIENCY)
 )
+
+
+def _spline_at_frequencies(spline: RectBivariateSpline, f_ghz: np.ndarray) -> BSpline:
+    # The table spline at fixed frequencies: one spline in elevation per
+    # frequency, with the same values, evaluated without a 2-D search.
+    tx, ty, c = spline.tck
+    kx, ky = spline.degrees
+    coeffs = BSpline.design_matrix(f_ghz, tx, kx) @ c.reshape(len(tx) - kx - 1, -1)
+    return BSpline(ty, coeffs.T, ky)
 
 
 def beam_area(array: ToltecArrayInfo) -> u.Quantity:
@@ -140,8 +149,14 @@ class ToltecArrayLoadingModel:
         self._throughput = np.asarray(passband["throughput"])
         f_ghz = atm_table["atmFreq"][:, 0]
         el = atm_table["el"]
-        self._atm_t = RectBivariateSpline(f_ghz, el, atm_table["atmTRJ"])
-        self._atm_tx = RectBivariateSpline(f_ghz, el, atm_table["atmTtx"])
+        f_passband_ghz = self._f.to_value(u.GHz)
+        self._atm_t = _spline_at_frequencies(
+            RectBivariateSpline(f_ghz, el, atm_table["atmTRJ"]), f_passband_ghz
+        )
+        self._atm_tx = _spline_at_frequencies(
+            RectBivariateSpline(f_ghz, el, atm_table["atmTtx"]), f_passband_ghz
+        )
+        self._el_range = (float(el.min()), float(el.max()))
         self._tel_surface_rms = tel_surface_rms
         self._det_noise_factor = det_noise_factor
 
@@ -150,9 +165,18 @@ class ToltecArrayLoadingModel:
         """The array."""
         return self._array
 
-    def _eval_atm(self, interp: RectBivariateSpline, alt: u.Quantity) -> np.ndarray:
-        f, a = np.meshgrid(self._f, np.atleast_1d(alt), indexing="ij")
-        return np.squeeze(interp(f.to_value(u.GHz), a.to_value(u.deg), grid=False).T)
+    @property
+    def alt_range(self) -> u.Quantity:
+        """Altitude range of the atmosphere model table.
+
+        Beyond it, the model keeps the values at the nearest edge.
+        """
+        return self._el_range << u.deg
+
+    def _eval_atm(self, interp: BSpline, alt: u.Quantity) -> np.ndarray:
+        # The table spline keeps its edge values beyond the table elevations.
+        el = np.clip(np.atleast_1d(alt.to_value(u.deg)), *self._el_range)
+        return np.squeeze(interp(el))
 
     @cached_property
     def _system_efficiency(self) -> np.ndarray:
@@ -183,16 +207,46 @@ class ToltecArrayLoadingModel:
         Parameters
         ----------
         alt : astropy.units.Quantity
-            Scalar altitude.
+            Altitude, scalar or 1-D.
 
         Returns
         -------
         astropy.units.Quantity
-            Power in pW.
+            Power in pW, of the shape of ``alt``.
         """
         return u.Quantity(np.nansum(self._t_to_dp(self._get_t_det(alt)), axis=-1)).to(
             u.pW
         )
+
+    def get_source_power(
+        self, surface_brightness: u.Quantity, alt: u.Quantity
+    ) -> u.Quantity:
+        """Return the detector power from a source seen through the atmosphere.
+
+        The source has the same surface brightness at every frequency of the
+        passband. Its power is integrated over the passband with the
+        atmosphere transmission at ``alt`` and the system efficiency, for a
+        single-mode, single-polarization detector.
+
+        Parameters
+        ----------
+        surface_brightness : astropy.units.Quantity
+            Surface brightness, broadcastable with ``alt``.
+        alt : astropy.units.Quantity
+            Altitude, scalar or 1-D.
+
+        Returns
+        -------
+        astropy.units.Quantity
+            Power in pW, of the broadcast shape.
+        """
+        tx_atm = self._eval_atm(self._atm_tx, alt)
+        # Rayleigh-Jeans: k_B * T * df with T = I * c**2 / (2 * k_B * f**2).
+        power_per_brightness = np.nansum(
+            self._system_efficiency * tx_atm * (const.c / self._f) ** 2 / 2.0,
+            axis=-1,
+        ) * (self._df * u.sr)
+        return (surface_brightness * power_per_brightness).to(u.pW)
 
     def get_noise(self, alt: u.Quantity) -> ArrayNoise:
         """Return the passband-integrated noise.
@@ -200,12 +254,13 @@ class ToltecArrayLoadingModel:
         Parameters
         ----------
         alt : astropy.units.Quantity
-            Scalar altitude.
+            Altitude, scalar or 1-D.
 
         Returns
         -------
         ArrayNoise
-            NET, NEFD and NEP, combined over the passband bins.
+            NET, NEFD and NEP, combined over the passband bins, of the shape
+            of ``alt``.
         """
         t_det = self._get_t_det(alt)
         noise_coeff = np.sqrt(1.0 + self._det_noise_factor**2)

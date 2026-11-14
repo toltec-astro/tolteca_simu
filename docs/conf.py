@@ -82,7 +82,9 @@ intersphinx_mapping["tolteca"] = (
 # them before lookup; "obj" also matches type aliases and data.
 _REFERENCE_ALIASES = {
     "Observer": "astroplan.Observer",
+    "ArrayLike": "numpy.typing.ArrayLike",
     "QTable": "astropy.table.QTable",
+    "Table": "astropy.table.Table",
     "SkyCoord": "astropy.coordinates.SkyCoord",
     "datetime": "datetime.datetime",
     "fits.HDUList": "astropy.io.fits.HDUList",
