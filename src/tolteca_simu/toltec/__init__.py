@@ -1,5 +1,6 @@
 """The TolTEC instrument specialization for planning and simulation."""
 
+from .atmosphere import AtmospherePower, get_matched_pwv
 from .coverage import (
     CoverageMap,
     Footprint,
@@ -21,6 +22,7 @@ from .signals import (
 __all__ = [
     "TOLTEC_ARRAYS",
     "TOLTEC_PLATE_SCALE",
+    "AtmospherePower",
     "CoverageMap",
     "DetectorLoading",
     "DetectorPositions",
@@ -34,6 +36,7 @@ __all__ = [
     "get_detector_positions",
     "get_footprint",
     "get_kids_signals",
+    "get_matched_pwv",
     "place_on_sky",
     "realize_power_noise",
 ]

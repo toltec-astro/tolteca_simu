@@ -28,6 +28,14 @@ Sky sources
 
 .. automodapi:: tolteca_simu.sources
 
+Atmosphere
+----------
+
+.. automodapi:: tolteca_simu.atmosphere
+   :skip: SiteWeather, ToastAtmosphereConfig
+
+See :doc:`models` for the weather and the atmosphere parameters.
+
 TolTEC
 ------
 

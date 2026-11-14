@@ -139,6 +139,9 @@ nitpick_ignore = [
     ("py:class", "tollan.config.types.time.TimeField"),
     ("py:class", "tollan.config.types.unit.UnitField"),
     # Module-private field types; each field's description states the quantity.
+    ("py:class", "tolteca_simu.atmosphere.PressureQuantityField"),
+    ("py:class", "tolteca_simu.atmosphere.SpeedQuantityField"),
+    ("py:class", "tolteca_simu.atmosphere.TemperatureQuantityField"),
     ("py:class", "tolteca_simu.mapping.AngularSpeedQuantityField"),
     ("py:class", "tolteca_simu.planning.description.FluxDensityQuantityField"),
 ]
@@ -176,13 +179,15 @@ warnings.filterwarnings("error", category=UserWarning, module=r"numpydoc\.docscr
 doctest_test_doctest_blocks = ""
 
 # Guide examples that read the calibration data store or reference observations
-# use the test suite's locations, and skip without the data as the tests do. A
+# use the test suite's locations, and skip without the data as the tests do;
+# examples of the toast extra skip without TOAST. A
 # skipped block is dropped from every builder's output, so only the doc-test
 # recipe, which sets the "doctest" tag, skips them; other builds keep them.
 _PYTHON_PATH = Path(__file__).resolve().parents[2]
 # Sphinx defines tags in this file's namespace.
 _SKIP_WITHOUT_DATA = tags.has("doctest")  # noqa: F405
 doctest_global_setup = f"""
+import importlib.util
 import os
 from pathlib import Path
 
@@ -198,4 +203,5 @@ skip_without_cal_data = {_SKIP_WITHOUT_DATA} and not (
     cal_data_path / "manifest.json"
 ).exists()
 skip_without_data_lmt = {_SKIP_WITHOUT_DATA} and not (data_lmt_path / "tel").is_dir()
+skip_without_toast = {_SKIP_WITHOUT_DATA} and importlib.util.find_spec("toast") is None
 """

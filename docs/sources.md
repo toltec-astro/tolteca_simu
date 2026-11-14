@@ -319,3 +319,64 @@ print(signals.iq.shape, np.allclose(x.T, signals.x, rtol=0, atol=1e-12))
 The responsivities of {py:data}`~tolteca_simu.toltec.info.TOLTEC_ARRAYS` are
 typical values per array, until detector calibrations provide them per detector.
 `get_kids_signals` requires TolTECA's `tolteca_kidsproc`.
+
+## Turbulent atmosphere
+
+The atmosphere of the loading models is static: its power depends on the
+altitude only. With the `toast` extra, `tolteca_simu[toast]`, TOAST 3 simulates
+the turbulent atmosphere above the LMT, and its fluctuations add to that power:
+
+1. Describe the weather at the telescope with
+   {py:class}`~tolteca_simu.atmosphere.SiteWeather`. LMT telescope files record
+   it in their `Header.Weather` variables.
+2. Generate a realization along the trajectory with
+   {py:meth}`ToastAtmosphere.generate <tolteca_simu.atmosphere.ToastAtmosphere.generate>`,
+   for a field of view that covers the detectors, and a seed.
+3. Prepare the detector power of each array with
+   {py:meth}`AtmospherePower.from_atmosphere <tolteca_simu.toltec.AtmospherePower.from_atmosphere>`.
+   The atmosphere has the PWV at which TOAST's atmosphere model gives the
+   loading models' atmosphere power.
+4. Observe the realization at the detector positions and add its power.
+
+The example continues with the replayed scan, its detectors and their power:
+
+```{testcode}
+:skipif: skip_without_data_lmt or skip_without_cal_data or skip_without_toast
+
+from tolteca_simu.atmosphere import SiteWeather, ToastAtmosphere, ToastAtmosphereConfig
+from tolteca_simu.toltec import AtmospherePower
+
+weather = SiteWeather.model_validate({
+    "pressure": "0.5904 bar",
+    "air_temperature": "0.3 deg_C",
+    "wind_speed": "5.685 m / s",
+    "wind_direction": "319.2 deg",
+})
+field_of_view = 2 * np.hypot(apt["x_t"], apt["y_t"]).max()
+with ToastAtmosphere.generate(
+    trajectory, field_of_view, weather, ToastAtmosphereConfig(), seed=1
+) as atmosphere:
+    atmosphere_power = AtmospherePower.from_atmosphere(atmosphere, loading_models)
+    raw = atmosphere.observe(positions.coords_altaz)
+power = loading.power + atmosphere_power.evaluate(labels, raw) + noise
+print(f"{atmosphere_power.pwv:.2f}", raw.shape)
+```
+
+```{testoutput}
+:skipif: skip_without_data_lmt or skip_without_cal_data or skip_without_toast
+
+1.74 mm (3553, 245)
+```
+
+The realization holds its memory until the `with` block ends; observe all
+detectors within it, in groups if needed. A detector's values depend only on its
+positions, so any grouping gives the same result. TOAST divides the observation
+into wind intervals, each with its own atmosphere volume. The mean of each
+interval is removed, so the loading model keeps the mean power; then the
+fluctuations fade to zero over 60 s on both sides of each break. Turnarounds of
+the trajectory take the breaks where possible.
+
+The amplitude of the fluctuations, the `gain` of
+{py:class}`~tolteca_simu.atmosphere.ToastAtmosphereConfig`, is not yet
+calibrated for the LMT. Generation takes about 40 s and 2 GB per observed hour;
+observing all TolTEC detectors takes about 0.2 s per observed second.

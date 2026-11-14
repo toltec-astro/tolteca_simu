@@ -225,14 +225,20 @@ decision.
   KIDs, and half-wave plate interfaces of a real observation.
 - Simulated acquisitions are identified as simulated: master `simu`.
 - A simulation run is identified by its job key, the stem of its outputs.
-- Evaluation may be split in time for memory or parallel execution. Splitting
-  does not change the result.
+- Evaluation may be split by detectors, and in time for memory or parallel
+  execution. Splitting does not change the result. The turbulent atmosphere is
+  realized once per observation and observed per detector over the whole
+  observation.
 - Random realizations, such as the atmosphere, are reproducible from recorded
   seeds.
-- The time-domain atmosphere comes from the TOAST backend.
 - Detector power combines the sources seen through the atmosphere, the
   atmosphere and instrument background, and white power noise, from the same
   loading model as planning.
+- The TOAST backend adds the turbulent atmosphere: time-domain fluctuations
+  around that background, which the loading model keeps. The weather at the
+  telescope (pressure, air temperature, wind speed and direction) drives it, at
+  the PWV for which TOAST's atmosphere model gives the loading model's
+  atmosphere power.
 - The KIDs detector response follows TolTECA's physical KIDs models. A KIDs
   model table describes the detectors at a reference loading; the reduction's
   timestream solver, given the same table, recovers the simulated detector state

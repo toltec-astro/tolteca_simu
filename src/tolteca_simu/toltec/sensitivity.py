@@ -173,6 +173,11 @@ class ToltecArrayLoadingModel:
         """
         return self._el_range << u.deg
 
+    @property
+    def f_passband(self) -> u.Quantity:
+        """Frequencies of the passband, on a uniform grid."""
+        return self._f
+
     def _eval_atm(self, interp: BSpline, alt: u.Quantity) -> np.ndarray:
         # The table spline keeps its edge values beyond the table elevations.
         el = np.clip(np.atleast_1d(alt.to_value(u.deg)), *self._el_range)
@@ -217,6 +222,46 @@ class ToltecArrayLoadingModel:
         return u.Quantity(np.nansum(self._t_to_dp(self._get_t_det(alt)), axis=-1)).to(
             u.pW
         )
+
+    def get_atmosphere_brightness(self, alt: u.Quantity) -> u.Quantity:
+        """Return the brightness temperature of the atmosphere model.
+
+        Parameters
+        ----------
+        alt : astropy.units.Quantity
+            Altitude, scalar or 1-D.
+
+        Returns
+        -------
+        astropy.units.Quantity
+            Rayleigh-Jeans brightness temperature in K at the passband
+            frequencies `f_passband`, along the last axis.
+        """
+        return self._eval_atm(self._atm_t, alt) << u.K
+
+    def get_atmosphere_power(self, brightness: u.Quantity) -> u.Quantity:
+        """Return the detector power from atmospheric emission.
+
+        The atmosphere term of `get_power` is this power for the brightness of
+        the atmosphere model, `get_atmosphere_brightness`.
+
+        Parameters
+        ----------
+        brightness : astropy.units.Quantity
+            Rayleigh-Jeans brightness temperature of the atmosphere at the
+            passband frequencies `f_passband`, along the last axis.
+
+        Returns
+        -------
+        astropy.units.Quantity
+            Power in pW, of the shape of ``brightness`` without the last axis.
+        """
+        return u.Quantity(
+            np.nansum(
+                self._t_to_dp(brightness * _COLD_EFFICIENCY * self._throughput),
+                axis=-1,
+            )
+        ).to(u.pW)
 
     def get_source_power(
         self, surface_brightness: u.Quantity, alt: u.Quantity

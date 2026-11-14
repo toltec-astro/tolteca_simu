@@ -53,6 +53,15 @@ Mapping presets
    :class-doc-from: class
    :members:
 
+Atmosphere
+----------
+
+.. autopydantic_model:: tolteca_simu.atmosphere.SiteWeather
+   :class-doc-from: class
+
+.. autopydantic_model:: tolteca_simu.atmosphere.ToastAtmosphereConfig
+   :class-doc-from: class
+
 Simulation settings
 -------------------
 

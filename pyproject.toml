@@ -138,6 +138,9 @@ report.exclude_also = [
 [tool.ty]
 src.include = ["src", "tests"]
 terminal.error-on-warning = true
+# TOAST, the toast extra, is not in the development location's environment;
+# remove this when the location installs the extra.
+analysis.allowed-unresolved-imports = ["toast", "toast.**"]
 
 
 [tool.ruff]
