@@ -104,15 +104,22 @@ def plan(
         Path, typer.Option(help="Directory to write the files to.")
     ] = Path(),
     coverage_unit: Annotated[
-        Literal["depth", "time"],
-        typer.Option(help="Coverage map as depth (mJy/beam) or time (s/pixel)."),
-    ] = "depth",
+        Literal["depth", "time"] | None,
+        typer.Option(
+            help=(
+                "Coverage map as depth (mJy/beam) or time (s/pixel); by default "
+                "the unit a results file records, or depth."
+            ),
+            show_default=False,
+        ),
+    ] = None,
     overwrite: Annotated[bool, typer.Option(help="Replace files that exist.")] = False,
 ) -> None:
     """Plan an observation and write the planner's files.
 
     The observation is a description in YAML, or a results file written by
-    the planner, whose description is planned again. The command writes the
+    the planner, whose description is planned again in its coverage unit, as
+    in the planner's Verify tab. The command writes the
     LMT observing tool script, the results table and the coverage map, as the
     planner's downloads. Place the file after -- when it follows a
     multi-value option such as --config_paths.
@@ -134,7 +141,8 @@ def plan(
         raise typer.BadParameter(msg)
     path = Path(paths[0])
     if path.suffix == ".ecsv":
-        description, _ = read_results_metadata(path.read_text())
+        description, meta = read_results_metadata(path.read_text())
+        coverage_unit = coverage_unit or meta["coverage_unit"]
     elif path.suffix in {".yaml", ".yml"}:
         description = ObservationDescription.model_validate(yaml_load(path))
     else:
@@ -144,7 +152,7 @@ def plan(
     files = make_export_files(
         plan_observation(description, simu.make_toltec_planner()),
         apt_path=simu.config.obs_planner.toltec.apt,
-        coverage_unit=coverage_unit,
+        coverage_unit=coverage_unit or "depth",
         created_at=datetime.now(UTC),
     )
     entries = [files["lmtot"], files["results"], files["coverage"]]

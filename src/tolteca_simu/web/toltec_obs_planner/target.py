@@ -14,9 +14,14 @@ from dash_component_template import Template
 from pydantic import ValidationError
 
 from tolteca_simu.lmt import get_lmt_observer
-from tolteca_simu.planning import get_target_uptime, parse_target
+from tolteca_simu.planning import (
+    get_target_uptime,
+    get_target_visibility,
+    parse_target,
+)
 
-from .controls import feedback, field, section_width, with_tooltip
+from .controls import CONTROL_SIZE, feedback, field, titled_card, with_tooltip
+from .visibility import make_visibility_figure
 
 if TYPE_CHECKING:
     from astroplan import Observer
@@ -26,6 +31,12 @@ __all__ = ["TargetPanel", "check_date", "check_start_time"]
 
 _DATE_LABEL = "Obs Date"
 _TIME_LABEL = "Obs Start Time (UT)"
+# The initial target, date and start time, as v1's.
+_TARGET_DEFAULT = "M1"
+_DATE_DEFAULT = "2024-02-15"
+_TIME_DEFAULT = "06:00:00"
+# The altitude plot marks this interval from a valid start time, as v1's.
+_PLOT_T_EXP = 2 << u.min
 # The formats of the date and start time inputs, as in v1.
 _DATE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TIME_PATTERN = re.compile(r"\d{2}:\d{2}:\d{2}")
@@ -117,12 +128,13 @@ def check_start_time(
 class TargetPanel(Template):
     """Inputs for the target and the observation start time, with their checks.
 
-    The panel publishes the resolved target in its `resolved` store (``name``,
-    ``ra_deg`` and ``dec_deg``, or None), and the target part of the
-    observation description, serialized as JSON, in its `target` store:
-    ``target_name``, ``target`` and ``t0``. The `target` store holds None while
-    an input is invalid. The date and time checks inform; they do not make the
-    description invalid.
+    As in v1, the target, the date and the start time are checked as they are
+    entered, and "Plot Alt. vs Time" plots the target altitude over the date
+    in a modal. The panel publishes the resolved target in its `resolved`
+    store (``name``, ``ra_deg`` and ``dec_deg``, or None), and the target part
+    of the observation description in its `target` store: ``target_name``,
+    ``target`` and ``t0``, as entered. The `target` store holds None unless
+    all three checks pass.
 
     Parameters
     ----------
@@ -133,10 +145,7 @@ class TargetPanel(Template):
     def __init__(self, target_alt_min: u.Quantity) -> None:
         super().__init__()
         self._target_alt_min = target_alt_min
-        card = self.child[dmc.Card](withBorder=True, padding="sm")
-        stack = card.child[dmc.Stack](gap="xs")
-        stack.child[dmc.Title]("Target", order=5)
-        width = section_width([_DATE_LABEL, _TIME_LABEL])
+        _, stack = titled_card(self, "Target")
         self._target_input = field(
             with_tooltip(
                 stack,
@@ -147,7 +156,7 @@ class TargetPanel(Template):
             dmc.TextInput,
             checked=True,
             placeholder="M1, NGC 1277, 17.7d -2.1d, 10h09m08s +20d19m18s",
-            value="M1",
+            value=_TARGET_DEFAULT,
             debounce=True,
         )
         self._date_input = field(
@@ -159,10 +168,9 @@ class TargetPanel(Template):
             ),
             dmc.TextInput,
             _DATE_LABEL,
-            label_width=width,
             checked=True,
             placeholder="yyyy-mm-dd",
-            value=None,
+            value=_DATE_DEFAULT,
             debounce=True,
         )
         self._time_input = field(
@@ -173,13 +181,17 @@ class TargetPanel(Template):
             ),
             dmc.TextInput,
             _TIME_LABEL,
-            label_width=width,
             checked=True,
             placeholder="HH:MM:SS",
-            value="06:00:00",
+            value=_TIME_DEFAULT,
             debounce=True,
         )
-        # Where the page adds the altitude plot and the site information.
+        plot_row = stack.child[dmc.Group](justify="flex-end")
+        self._plot_button = plot_row.child[dmc.Button](
+            "Plot Alt. vs Time", size=CONTROL_SIZE
+        )
+        self._plot_modal = plot_row.child[dmc.Modal](size=500, opened=False)
+        # Where the page adds the site information.
         self.footer = stack.child[dmc.Stack](gap="xs")
         self.resolved = stack.child[dcc.Store](data=None)
         self.target = stack.child[dcc.Store](data=None)
@@ -192,16 +204,6 @@ class TargetPanel(Template):
         app : dash.Dash
             Application receiving the callbacks.
         """
-        app.clientside_callback(
-            """
-            function(_id, value) {
-                return value || new Date().toISOString().slice(0, 10);
-            }
-            """,
-            Output(self._date_input(), "value"),
-            Input(self._date_input(), "id"),
-            State(self._date_input(), "value"),
-        )
         target_input = self._target_input()
         date_input = self._date_input()
         time_input = self._time_input()
@@ -227,12 +229,38 @@ class TargetPanel(Template):
             Input(date_input, "value"),
             Input(self.resolved(), "data"),
         )(self._check_time)
-        app.callback(
+        # As v1: the target part is assembled in the browser once the three
+        # checks pass.
+        app.clientside_callback(
+            """
+            function(date, dateError, time, timeError, resolved, targetError) {
+                if (!resolved || targetError || dateError || timeError) {
+                    return null;
+                }
+                return {
+                    target_name: resolved.name,
+                    target: resolved.ra_deg + "d " + resolved.dec_deg + "d",
+                    t0: date + "T" + time,
+                };
+            }
+            """,
             Output(self.target(), "data"),
-            Input(self.resolved(), "data"),
             Input(date_input, "value"),
+            Input(date_input, "error"),
             Input(time_input, "value"),
-        )(self._make_target)
+            Input(time_input, "error"),
+            Input(self.resolved(), "data"),
+            Input(target_input, "error"),
+        )
+        app.callback(
+            Output(self._plot_modal(), "children"),
+            Output(self._plot_modal(), "opened"),
+            Input(self._plot_button(), "n_clicks"),
+            State(date_input, "value"),
+            State(time_input, "value"),
+            State(self.resolved(), "data"),
+            prevent_initial_call=True,
+        )(self._plot_altitude)
 
     @staticmethod
     def _resolve_target(text: str | None) -> tuple:
@@ -264,28 +292,39 @@ class TargetPanel(Template):
     def _check_time(
         self, time: str | None, date: str | None, resolved: dict | None
     ) -> tuple:
-        if resolved is None or _parse_start(date) is None:
+        if resolved is None:
             return feedback(None, valid=False)
+        if _parse_start("2000-01-01", time) is None:
+            return feedback("Invalid time. Use HH:MM:SS.", valid=False)
         t0 = _parse_start(date, time)
         if t0 is None:
-            return feedback("Invalid time. Use HH:MM:SS.", valid=False)
+            return feedback(None, valid=False)
         message, valid = check_start_time(
             _coord(resolved), t0, get_lmt_observer(), self._target_alt_min
         )
         return feedback(message, valid=valid)
 
-    @staticmethod
-    def _make_target(
-        resolved: dict | None, date: str | None, time: str | None
-    ) -> dict[str, str] | None:
+    def _plot_altitude(
+        self,
+        _n_clicks: int,
+        date: str | None,
+        time: str | None,
+        resolved: dict | None,
+    ) -> tuple:
+        # As v1: the plot needs the target and the date; with a valid start
+        # time it also marks the target from then on.
+        if resolved is None:
+            return dmc.Text("Invalid target format.", size=CONTROL_SIZE), True
         t0 = _parse_start(date, time)
-        if resolved is None or t0 is None:
-            return None
-        return {
-            "target_name": resolved["name"],
-            "target": f"{resolved['ra_deg']:.17g}d {resolved['dec_deg']:.17g}d",
-            "t0": t0.isot,
-        }
+        t_exp = _PLOT_T_EXP
+        if t0 is None:
+            t0 = _parse_start(date)
+            t_exp = 0 << u.min
+        if t0 is None:
+            return dmc.Text("Invalid date format.", size=CONTROL_SIZE), True
+        visibility = get_target_visibility(_coord(resolved), t0, get_lmt_observer())
+        figure = make_visibility_figure(visibility, t0 + t_exp, self._target_alt_min)
+        return dcc.Graph(figure=figure), True
 
 
 def _coord(resolved: dict) -> SkyCoord:

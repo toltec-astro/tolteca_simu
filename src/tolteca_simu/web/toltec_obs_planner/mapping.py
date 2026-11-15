@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-import astropy.units as u
+import dash
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, dcc
 from dash.exceptions import PreventUpdate
@@ -19,68 +19,58 @@ from tolteca_simu.mapping import (
     RastajousPattern,
     RasterPattern,
 )
-from tolteca_simu.planning.description import FluxDensityQuantityField
 
 from .controls import (
     feedback,
     field,
+    field_props,
     hover_card,
     labeled_choice,
-    section_width,
+    titled_card,
+    tooltip,
     with_tooltip,
 )
 
 if TYPE_CHECKING:
+    import astropy.units as u
     from dash import Dash
     from dash_component_template import LazyComponent
 
     from tolteca_simu.mapping import MappingPattern
     from tolteca_simu.planning import MappingPreset, MappingPresets, PresetParam
 
-__all__ = ["MappingPanel", "make_mapping_data"]
+__all__ = ["MappingPanel", "make_preset_data"]
 
 _t_exp_adapter = TypeAdapter(TimeQuantityField | None)
-_desired_sens_adapter = TypeAdapter(FluxDensityQuantityField)
 
 
-def make_mapping_data(
-    pattern: MappingPattern,
-    ref_frame: str,
-    t_exp: u.Quantity | None,
-    desired_sens: u.Quantity,
+def make_preset_data(
+    pattern: MappingPattern, t_exp: u.Quantity | None
 ) -> dict[str, Any]:
-    """Return the mapping part of an observation description, as JSON.
+    """Return the mapping pattern and exposure time of a preset, as JSON.
 
     Parameters
     ----------
     pattern : tolteca_simu.mapping.MappingPattern
         The mapping pattern.
-    ref_frame : {"altaz", "icrs"}
-        Frame of the pattern offsets.
     t_exp : astropy.units.Quantity or None
         Exposure time; None observes the pattern once.
-    desired_sens : astropy.units.Quantity
-        Desired coadded map depth.
 
     Returns
     -------
     dict
-        ``mapping``, ``ref_frame``, ``t_exp`` and ``desired_sens``, serialized
-        by their field types.
+        ``mapping`` and ``t_exp``, serialized by their field types. The page
+        adds ``ref_frame`` and ``desired_sens`` to make the mapping part of
+        the observation description.
     """
     return {
         "mapping": pattern.model_dump(mode="json"),
-        "ref_frame": ref_frame,
         "t_exp": _t_exp_adapter.dump_python(t_exp, mode="json"),
-        "desired_sens": _desired_sens_adapter.dump_python(desired_sens, mode="json"),
     }
 
 
 _PARAM_ID_TYPE = "mapping-preset-param"
-_REF_FRAMES = [
-    {"label": "Az/Alt", "value": "altaz"},
-    {"label": "RA/Dec", "value": "icrs"},
-]
+
 _DESIRED_SENS_DEFAULT = 1.0  # mJy/beam
 _DESIRED_SENS_LABEL = "Desired Map RMS (mJy/beam)"
 _REF_FRAME_LABEL = "Mapping Reference Frame"
@@ -104,6 +94,14 @@ _PATTERN_FIELDS = {
         RastajousPattern,
     )
 }
+
+
+def _ref_frame_options(*, polarized: bool) -> list[dict[str, Any]]:
+    # Polarimetry maps in RA/Dec only.
+    return [
+        {"label": "AZ/Alt", "value": "altaz", "disabled": polarized},
+        {"label": "RA/Dec", "value": "icrs", "disabled": False},
+    ]
 
 
 def _is_enabled(preset: MappingPreset, conditions: dict[str, Any]) -> bool:
@@ -135,17 +133,22 @@ def _desired_sens_feedback(desired_sens: float | str | None) -> tuple:
 
 
 class MappingPanel(Template):
-    """Preset choice, preset parameters, and the reference frame.
+    """Desired depth, preset choice, preset parameters, and the reference frame.
 
-    The panel publishes, serialized as JSON, the mapping part of the observation
-    description in its `mapping` store: ``mapping``, ``ref_frame``, ``t_exp``
-    and ``desired_sens``. The store holds None while the parameters are invalid.
-    Presets whose conditions the instrument settings do not meet are disabled.
+    As in v1, no preset is chosen at first; choosing one shows its
+    parameters. The panel publishes the mapping part of the observation
+    description in its `mapping` store: ``mapping`` and ``t_exp``, serialized
+    by their field types, and ``ref_frame`` and ``desired_sens``, as entered.
+    The store holds None until a preset with valid parameters and a valid
+    desired depth are entered; the `preset_select` shows an error until a
+    preset with valid parameters is chosen. Presets whose conditions the instrument
+    settings do not meet are disabled; when the settings change which presets
+    are enabled, the choice is cleared.
 
     Parameters
     ----------
     presets : tolteca_simu.planning.MappingPresets
-        The presets to offer; the first enabled one is selected initially.
+        The presets to offer.
     t_exp_max : astropy.units.Quantity
         Longest duration accepted for a preset without an exposure time.
     instrument : dash_component_template.LazyComponent
@@ -162,9 +165,7 @@ class MappingPanel(Template):
         self._presets = presets
         self._t_exp_max = t_exp_max
         self._instrument = instrument
-        card = self.child[dmc.Card](withBorder=True, padding="sm")
-        stack = card.child[dmc.Stack](gap="xs")
-        stack.child[dmc.Title]("Mapping", order=5)
+        _, stack = titled_card(self, "Mapping")
         self._desired_sens = field(
             with_tooltip(stack, _DESIRED_SENS_TOOLTIP),
             dmc.NumberInput,
@@ -174,66 +175,38 @@ class MappingPanel(Template):
             min=0,
             placeholder="1.0",
             hideControls=True,
+            clampBehavior="none",
+            debounce=True,
         )
-        data, value = self._make_preset_options({"polarized": False})
         preset_target, self._preset_text = hover_card(stack)
-        self._preset_select = field(
+        self.preset_select = field(
             preset_target,
             dmc.Select,
             checked=True,
-            data=data,
-            value=value,
+            data=self._make_preset_options({"polarized": False}),
+            value=None,
             placeholder="Choose a mapping pattern template to edit ...",
             allowDeselect=False,
         )
-        param_width = section_width(
-            [name for p in presets.presets for name in p.params]
+        # The parameters of the chosen preset, made on selection.
+        self._form = stack.child[dmc.Stack](gap="xs")
+        self._ref_frame = labeled_choice(
+            stack, _REF_FRAME_LABEL, _ref_frame_options(polarized=False), "altaz"
         )
-        self._forms = []
-        for preset in presets.presets:
-            form = stack.child[dmc.Stack](gap="xs")
-            for name, param in preset.params.items():
-                # A hidden parameter takes no room, so it has no tooltip.
-                parent = (
-                    with_tooltip(form, _param_tooltip(preset, name, param))
-                    if param.visible
-                    else form
-                )
-                param_input = field(
-                    parent,
-                    dmc.NumberInput,
-                    name,
-                    label_width=param_width,
-                    unit=None if param.unit is None else str(param.unit),
-                    id={"type": _PARAM_ID_TYPE, "preset": preset.key, "param": name},
-                    value=param.value,
-                    min=param.min,
-                    max=param.max,
-                    placeholder=_param_placeholder(param),
-                    hideControls=True,
-                    disabled=not param.editable,
-                    display=None if param.visible else "none",
-                )
-            self._forms.append(form)
-        # Any parameter input supplies the pattern-matching id of them all.
-        self._param_input = param_input
-        self._ref_frame, ref_frame_chips = labeled_choice(
-            stack, _REF_FRAME_LABEL, _REF_FRAMES, "altaz"
-        )
-        self._altaz_chip = ref_frame_chips["altaz"]
         # Where the page adds its Execute button.
         self.footer = stack.child[dmc.Stack](gap="xs")
+        self._preset_data = stack.child[dcc.Store](data=None)
         self.mapping = stack.child[dcc.Store](data=None)
 
-    def _make_preset_options(
-        self, conditions: dict[str, Any]
-    ) -> tuple[list[dict[str, Any]], str]:
-        enabled = [p.key for p in self._presets.presets if _is_enabled(p, conditions)]
-        data: list[dict[str, Any]] = [
-            {"value": p.key, "label": p.label, "disabled": p.key not in enabled}
+    def _make_preset_options(self, conditions: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "value": p.key,
+                "label": p.label,
+                "disabled": not _is_enabled(p, conditions),
+            }
             for p in self._presets.presets
         ]
-        return data, enabled[0]
 
     def setup_callbacks(self, app: Dash) -> None:
         """Show the chosen preset and publish its mapping.
@@ -243,7 +216,6 @@ class MappingPanel(Template):
         app : dash.Dash
             Application receiving the callbacks.
         """
-        keys = [preset.key for preset in self._presets.presets]
         # As v1's preset popover: the description, or the pattern type, and
         # the long description.
         texts = {
@@ -256,75 +228,129 @@ class MappingPanel(Template):
         app.clientside_callback(
             f"""
             function(key) {{
-                const keys = {json.dumps(keys)};
                 const texts = {json.dumps(texts)};
-                const text = (children) => ({{
+                if (!key) {{
+                    return window.dash_clientside.no_update;
+                }}
+                return texts[key].filter(t => t).map(children => ({{
                     namespace: "dash_mantine_components", type: "Text",
-                    props: {{children, size: "xs"}},
-                }});
-                return [texts[key].filter(t => t).map(text)].concat(keys.map(
-                    k => (k === key ? {{}} : {{display: "none"}})));
+                    props: {{children, size: "sm"}},
+                }}));
             }}
             """,
             Output(self._preset_text(), "children"),
-            [Output(form(), "style") for form in self._forms],
-            Input(self._preset_select(), "value"),
+            Input(self.preset_select(), "value"),
         )
-        params = self._param_input({"preset": ALL, "param": ALL})
-
+        form_id = self._form().id
         app.callback(
-            Output(self._preset_select(), "data"),
-            Output(self._preset_select(), "value"),
-            Output(self._altaz_chip(), "disabled"),
+            Output(self._form(), "children"),
+            Input(self.preset_select(), "value"),
+        )(lambda key: self._make_form(form_id, key))
+        app.callback(
+            Output(self.preset_select(), "data"),
+            Output(self.preset_select(), "value"),
+            Output(self._ref_frame(), "data"),
             Output(self._ref_frame(), "value"),
             Input(self._instrument(), "data"),
-            State(self._preset_select(), "value"),
-            State(self._ref_frame(), "value"),
+            State(self.preset_select(), "data"),
+            State(self._ref_frame(), "data"),
         )(self._apply_conditions)
-
-        preset_select = self._preset_select()
-        desired_sens_input = self._desired_sens()
-
+        params = {"type": _PARAM_ID_TYPE, "form": form_id}
+        preset_select = self.preset_select()
         app.callback(
-            Output(self.mapping(), "data"),
+            Output(self._preset_data(), "data"),
             Output(preset_select, "error"),
             Output(preset_select, "description"),
             Output(preset_select, "mod"),
+            # Dash does not call this when all parameter inputs are removed,
+            # so the choice itself is an input too.
+            Input(preset_select, "value"),
+            Input(params | {"preset": ALL, "param": ALL}, "value"),
+            State(params | {"preset": ALL, "param": ALL}, "id"),
+        )(self._make_preset_data)
+        desired_sens_input = self._desired_sens()
+        app.callback(
             Output(desired_sens_input, "error"),
             Output(desired_sens_input, "description"),
             Output(desired_sens_input, "mod"),
-            Input(preset_select, "value"),
-            Input(params, "value"),
-            Input(self._ref_frame(), "value"),
             Input(desired_sens_input, "value"),
-            State(params, "id"),
-        )(self._make_mapping)
+        )(_desired_sens_feedback)
+        # As v1: the mapping part is assembled in the browser.
+        app.clientside_callback(
+            """
+            function(desiredSens, desiredSensError, refFrame, presetData) {
+                if (!presetData || desiredSensError) {
+                    return null;
+                }
+                return Object.assign({}, presetData, {
+                    ref_frame: refFrame,
+                    desired_sens: desiredSens + " mJy",
+                });
+            }
+            """,
+            Output(self.mapping(), "data"),
+            Input(desired_sens_input, "value"),
+            Input(desired_sens_input, "error"),
+            Input(self._ref_frame(), "value"),
+            Input(self._preset_data(), "data"),
+        )
 
-    def _make_mapping(
-        self,
-        key: str,
-        values: list,
-        ref_frame: str,
-        desired_sens: float | str | None,
-        ids: list[dict[str, str]],
-    ) -> tuple:
-        sens_feedback = _desired_sens_feedback(desired_sens)
+    def _make_form(self, form_id: str, key: str | None) -> list[Any] | None:
+        # As v1: the parameter inputs of the chosen preset, each with its
+        # tooltip.
+        if not key:
+            return None
         preset = self._presets.get(key)
+        inputs = []
+        for name, param in preset.params.items():
+            param_input = dmc.NumberInput(
+                id={
+                    "type": _PARAM_ID_TYPE,
+                    "form": form_id,
+                    "preset": preset.key,
+                    "param": name,
+                },
+                value=param.value,
+                min=param.min,
+                max=param.max,
+                placeholder=_param_placeholder(param),
+                hideControls=True,
+                clampBehavior="none",
+                disabled=not param.editable,
+                display=None if param.visible else "none",
+                **field_props(
+                    name, unit=None if param.unit is None else str(param.unit)
+                ),
+            )
+            # A hidden parameter takes no room, so it has no tooltip.
+            inputs.append(
+                tooltip(param_input, _param_tooltip(preset, name, param))
+                if param.visible
+                else param_input
+            )
+        return inputs
+
+    def _make_preset_data(
+        self, key: str | None, values: list, ids: list[dict[str, str]]
+    ) -> tuple:
+        if not key:
+            return None, *feedback("Invalid mapping settings.", valid=False)
         selected = {
             i["param"]: v
             for i, v in zip(ids, values, strict=True)
             if i["preset"] == key
         }
-        pattern = t_exp = None
+        # The inputs of a newly chosen preset are made after the choice.
+        if not selected:
+            raise PreventUpdate
         if any(v is None or v == "" for v in selected.values()):
-            message = "Invalid mapping settings: enter every parameter."
-        else:
-            try:
-                pattern, t_exp = preset.make_mapping(selected)
-            except (ValueError, ValidationError) as error:
-                message = f"Invalid mapping settings: {error}"
-        if pattern is None:
-            return None, *feedback(message, valid=False), *sens_feedback
+            return None, *feedback("Invalid mapping settings.", valid=False)
+        preset = self._presets.get(key)
+        try:
+            pattern, t_exp = preset.make_mapping(selected)
+        except (ValueError, ValidationError) as error:
+            message = f"Invalid mapping settings: {error}"
+            return None, *feedback(message, valid=False)
         t_pattern = pattern.t_pattern
         if t_exp is not None:
             message = (
@@ -336,30 +362,31 @@ class MappingPanel(Template):
                 f"The pattern takes {t_pattern:.2f} to finish, which exceeds "
                 f"the required maximum value of {self._t_exp_max}."
             )
-            return None, *feedback(message, valid=False), *sens_feedback
+            return None, *feedback(message, valid=False)
         else:
             message = f"Time to finish the pattern: {t_pattern:.2f}."
-        preset_feedback = feedback(message, valid=True)
-        if desired_sens is None or sens_feedback[0] is not None:
-            return None, *preset_feedback, *sens_feedback
-        data = make_mapping_data(
-            pattern, ref_frame, t_exp, float(desired_sens) << u.mJy
-        )
-        return data, *preset_feedback, *sens_feedback
+        return make_preset_data(pattern, t_exp), *feedback(message, valid=True)
 
     def _apply_conditions(
-        self, instrument: dict[str, Any] | None, key: str, ref_frame: str
+        self,
+        instrument: dict[str, Any] | None,
+        preset_options: list[dict[str, Any]],
+        ref_frame_options: list[dict[str, Any]],
     ) -> tuple:
-        # The instrument settings are published by a clientside callback;
-        # until then there are no conditions to apply.
+        # As v1: options that do not change are left alone; changed preset
+        # options clear the choice, and changed reference frames choose the
+        # first enabled one.
         if instrument is None:
             raise PreventUpdate
         conditions = {k: v for k, v in instrument.items() if isinstance(v, bool)}
-        data, first_enabled = self._make_preset_options(conditions)
-        if not _is_enabled(self._presets.get(key), conditions):
-            key = first_enabled
-        # Polarimetry maps in RA/Dec only.
-        polarized = bool(conditions.get("polarized", False))
-        if polarized:
-            ref_frame = "icrs"
-        return data, key, polarized, ref_frame
+        presets: Any = self._make_preset_options(conditions)
+        preset: Any = None
+        if presets == preset_options:
+            presets = preset = dash.no_update
+        ref_frames: Any = _ref_frame_options(
+            polarized=bool(conditions.get("polarized", False))
+        )
+        ref_frame: Any = next(o["value"] for o in ref_frames if not o["disabled"])
+        if ref_frames == ref_frame_options:
+            ref_frames = ref_frame = dash.no_update
+        return presets, preset, ref_frames, ref_frame

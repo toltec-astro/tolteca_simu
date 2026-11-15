@@ -15,6 +15,7 @@ import astropy.units as u
 import numpy as np
 from astropy.io import fits
 from astropy.table import QTable
+from pydantic import TypeAdapter
 
 from tolteca_simu import __version__
 from tolteca_simu.lmtot import make_lmtot_script
@@ -39,6 +40,8 @@ __all__ = [
 ]
 
 _DESCRIPTION_KEY = "observation_description"
+_COVERAGE_UNIT_KEY = "coverage_unit"
+_coverage_unit_adapter = TypeAdapter(Literal["depth", "time"])
 # The job key of planner simulations, recorded as the OT script author (v1).
 _JOB_KEY = "obs_planner_simu"
 
@@ -47,11 +50,13 @@ def _mapping_speed_text(value: u.Quantity) -> str:
     return f"{value.value:.1f} {value.unit:s}"
 
 
-def make_results_table(
+def make_results_table(  # noqa: PLR0913
     description: ObservationDescription,
     result: ToltecPlanningResult,
     time_cost: TimeCost,
     apt_path: str,
+    *,
+    coverage_unit: Literal["depth", "time"],
     created_at: datetime,
 ) -> QTable:
     """Return the planning results as a table with one row per array.
@@ -66,6 +71,9 @@ def make_results_table(
         Its project time.
     apt_path : str
         Array property table used, relative to the calibration data store.
+    coverage_unit : {"depth", "time"}
+        Unit of the coverage map exported with the table, recorded so that
+        the file reproduces it, as v1 records it.
     created_at : datetime.datetime
         Creation time, in UTC.
 
@@ -73,7 +81,7 @@ def make_results_table(
     -------
     astropy.table.QTable
         Sensitivity, depth, and project time per array, with the description,
-        APT, and package version in the metadata.
+        APT, coverage unit and package version in the metadata.
     """
     stokes = "Polarized (Q/U)" if result.polarized else "Total Intensity (I)"
     rows = []
@@ -124,6 +132,7 @@ def make_results_table(
     table.meta["created_at"] = created_at.isoformat()
     table.meta[_DESCRIPTION_KEY] = description.model_dump(mode="json")
     table.meta["apt"] = apt_path
+    table.meta[_COVERAGE_UNIT_KEY] = coverage_unit
     table.meta["tolteca_simu_version"] = __version__
     return table
 
@@ -159,12 +168,15 @@ def read_results_metadata(
     Returns
     -------
     tuple
-        The observation description, and the remaining metadata.
+        The observation description, and the remaining metadata:
+        ``created_at``, ``apt``, ``coverage_unit`` and
+        ``tolteca_simu_version``.
 
     Raises
     ------
     ValueError
-        If the content is not a results table with a description.
+        If the content is not a results table with a description and a
+        coverage unit.
     """
     try:
         table = QTable.read(content, format="ascii.ecsv")
@@ -176,6 +188,12 @@ def read_results_metadata(
         msg = "The table has no observation description"
         raise ValueError(msg)
     description = ObservationDescription.model_validate(meta.pop(_DESCRIPTION_KEY))
+    if _COVERAGE_UNIT_KEY not in meta:
+        msg = "The table has no coverage unit"
+        raise ValueError(msg)
+    meta[_COVERAGE_UNIT_KEY] = _coverage_unit_adapter.validate_python(
+        meta[_COVERAGE_UNIT_KEY]
+    )
     return description, meta
 
 
@@ -284,7 +302,12 @@ def make_export_files(
     description = plan.description
     name = re.sub(r"\s+", "-", f"target_{description.target_name}")
     table = make_results_table(
-        description, plan.result, plan.time_cost, apt_path, created_at=created_at
+        description,
+        plan.result,
+        plan.time_cost,
+        apt_path,
+        coverage_unit=coverage_unit,
+        created_at=created_at,
     )
     coverage = BytesIO()
     make_coverage_hdulist(plan.result, coverage_unit).writeto(coverage)

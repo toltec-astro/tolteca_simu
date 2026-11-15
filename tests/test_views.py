@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 import astropy.units as u
+import dash_mantine_components as dmc
 import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
@@ -20,7 +21,10 @@ from tolteca_simu.planning.presets import get_default_presets_path
 from tolteca_simu.toltec import TOLTEC_ARRAYS
 from tolteca_simu.toltec.planning import ToltecPlanner
 from tolteca_simu.toltec.settings import ToltecSettings
-from tolteca_simu.web.toltec_obs_planner.views import make_view_description
+from tolteca_simu.web.toltec_obs_planner.views import (
+    ViewsPanel,
+    make_view_description,
+)
 from tolteca_simu.web.toltec_obs_planner.views_aladin import AladinViewsPanel
 from tolteca_simu.web.toltec_obs_planner.views_firefly import FireflyViewsPanel
 
@@ -201,6 +205,28 @@ def test_aladin_layers_follow_the_description(view_description: dict) -> None:
         np.asarray(view_description["fov_outline"])
     )
     assert views["coverage_title"] == view_description["coverage_title"]
+
+
+def test_legend_names_the_sky_overlays(view_description: dict) -> None:
+    # v1 shows the sky view's layer box open, each layer named in its color;
+    # the legend gives the same for the layers both backends draw.
+    entries = []
+    for item in ViewsPanel.make_legend(view_description):
+        hidden = isinstance(item, dmc.Tooltip)
+        swatch, name = (item.children if hidden else item).children
+        entries.append((name.children, swatch.bg, not hidden))
+    layers = TypeAdapter(list[Layer]).validate_python(
+        AladinViewsPanel.make_views(view_description)["sky"]["layers"]
+    )
+    assert entries == [
+        (layer.name, layer.color, layer.visible)
+        for layer in layers
+        if isinstance(layer, GraphicLayer)
+    ]
+    firefly = FireflyViewsPanel.make_views(view_description)["sky_layers"]
+    assert [(layer["title"], layer["visible"]) for layer in firefly] == [
+        (name, visible) for name, _, visible in entries
+    ]
 
 
 # v1 ObsPlannerMappingPlotter.make_skyview_params fov (deg) for M1 at

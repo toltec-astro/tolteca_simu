@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from dash import ClientsideFunction, Input, Output, State, dcc, html
 
-from .views import SKY_FOV_DEFAULT, ViewsPanel
+from .views import SKY_FOV_DEFAULT, SKY_OVERLAYS, ViewsPanel
 
 if TYPE_CHECKING:
     from dash import Dash
@@ -25,9 +25,20 @@ _HIPS = "CDS/P/DSS2/color"
 
 
 def _region_layer(
-    layer_id: str, title: str, regions: list[str], *, visible: bool = True
+    layer_id: str, array_name_long: str, regions: list[str]
 ) -> dict[str, Any]:
-    return {"id": layer_id, "title": title, "regions": regions, "visible": visible}
+    overlay = SKY_OVERLAYS[layer_id]
+    return {
+        "id": layer_id,
+        "title": overlay.name.format(array=array_name_long),
+        "regions": regions,
+        "visible": overlay.visible,
+    }
+
+
+def _style(layer_id: str) -> str:
+    overlay = SKY_OVERLAYS[layer_id]
+    return f"color={overlay.color} width={overlay.line_width}"
 
 
 class FireflyViewsPanel(ViewsPanel):
@@ -39,8 +50,8 @@ class FireflyViewsPanel(ViewsPanel):
         Base URL of the Firefly server, as browsers reach it.
     sky_target : dash_component_template.LazyComponent
         Store holding the RA and Dec of the target, in degrees, or None.
-    downloads : dash_component_template.LazyComponent
-        Store holding the files of the current result.
+    result : dash_component_template.LazyComponent
+        Store holding the current result.
     sky_parent, coverage_parent : dash_component_template.LazyComponent
         Containers of the sky and coverage views.
     """
@@ -49,11 +60,11 @@ class FireflyViewsPanel(ViewsPanel):
         self,
         firefly_url: str,
         sky_target: LazyComponent,
-        downloads: LazyComponent,
+        result: LazyComponent,
         sky_parent: LazyComponent,
         coverage_parent: LazyComponent,
     ) -> None:
-        super().__init__(sky_target, downloads, sky_parent, coverage_parent)
+        super().__init__(sky_target, result, sky_parent, coverage_parent)
         # One Firefly viewer per view.
         self._sky = sky_parent.child[html.Div](style={"height": "480px"})
         self._coverage = coverage_parent.child[html.Div](style={"height": "420px"})
@@ -80,22 +91,21 @@ class FireflyViewsPanel(ViewsPanel):
             ``visible``) of the ``sky_layers`` and ``coverage_layers``: the
             mapping trajectory (line segments), the detectors (circles of the
             beam radius, hidden at first), the array's field of view and the
-            coverage outline (polygons), named and styled as in v1.
+            coverage outline (polygons), named and styled by `SKY_OVERLAYS`.
         """
         name_long = description["array_name_long"]
         detectors = description["detectors"]
         radius = detectors["radius_deg"] * 3600
+        detector_color = SKY_OVERLAYS["detectors"].color
 
-        def polygon(vertices: list[list[float]], style: str) -> list[str]:
+        def polygon(layer_id: str, vertices: list[list[float]]) -> list[str]:
             if not vertices:
                 return []
             points = ",".join(f"{v[0]:.6f},{v[1]:.6f}" for v in vertices)
-            return [f"icrs;polygon({points}) # {style}"]
+            return [f"icrs;polygon({points}) # {_style(layer_id)}"]
 
         outline = _region_layer(
-            "outline",
-            "Coverage Outline",
-            polygon(description["outline"], "color=#66cccc width=4"),
+            "outline", name_long, polygon("outline", description["outline"])
         )
         return {
             "size_deg": description["size_deg"],
@@ -103,26 +113,24 @@ class FireflyViewsPanel(ViewsPanel):
             "sky_layers": [
                 _region_layer(
                     "trajectory",
-                    "Mapping Trajectory",
+                    name_long,
                     [
                         f"icrs;line({a[0]:.6f},{a[1]:.6f},{b[0]:.6f},{b[1]:.6f})"
-                        " # color=red width=1"
+                        f" # {_style('trajectory')}"
                         for a, b in pairwise(description["trajectory"])
                     ],
                 ),
                 _region_layer(
                     "detectors",
-                    f"Detectors: {name_long}",
+                    name_long,
                     [
-                        f'icrs;circle({p[0]:.6f},{p[1]:.6f},{radius:.2f}") # color=blue'
+                        f'icrs;circle({p[0]:.6f},{p[1]:.6f},{radius:.2f}")'
+                        f" # color={detector_color}"
                         for p in detectors["positions"]
                     ],
-                    visible=False,
                 ),
                 _region_layer(
-                    "fov",
-                    f"FOV: {name_long}",
-                    polygon(description["fov_outline"], "color=#cc66cc width=8"),
+                    "fov", name_long, polygon("fov", description["fov_outline"])
                 ),
                 outline,
             ],
@@ -137,6 +145,7 @@ class FireflyViewsPanel(ViewsPanel):
         app : dash.Dash
             Application receiving the callbacks.
         """
+        super().setup_callbacks(app)
         app.clientside_callback(
             ClientsideFunction(
                 namespace="toltec_obs_planner", function_name="center_firefly_sky"
@@ -152,8 +161,7 @@ class FireflyViewsPanel(ViewsPanel):
                 namespace="toltec_obs_planner", function_name="render_firefly_views"
             ),
             Output(self._status(), "children"),
-            Input(self.views(), "data"),
-            State(self._downloads(), "data"),
+            Input(self._result(), "data"),
             State(self._settings(), "data"),
             State(self._sky_target(), "data"),
             State(self._status(), "id"),

@@ -17,10 +17,15 @@ from dash_component_template import Template
 from tolteca_simu.config import FireflyViewerConfig
 from tolteca_simu.core import Simu
 from tolteca_simu.lmt import get_lmt_observer
-from tolteca_simu.planning import MappingPresets, ObservationDescription
+from tolteca_simu.planning import (
+    MappingPresets,
+    ObservationDescription,
+    get_target_visibility,
+)
 from tolteca_simu.toltec import TOLTEC_ARRAYS
 from tolteca_simu.toltec.planning import ToltecPlanner, plan_observation
 
+from .controls import CONTROL_SIZE
 from .exports import ExportsPanel, make_downloads
 from .instrument import ToltecPanel
 from .mapping import MappingPanel
@@ -32,10 +37,11 @@ from .verify import VerifyPanel
 from .views import make_view_description
 from .views_aladin import AladinViewsPanel
 from .views_firefly import FireflyViewsPanel
-from .visibility import VisibilityPanel
+from .visibility import make_visibility_figure
 
 if TYPE_CHECKING:
     from dash._callback import NoUpdate
+    from dash_component_template import LazyComponent
     from tollan.config import RuntimeContext
 
     from tolteca_simu.config import ObsPlannerConfig
@@ -103,15 +109,17 @@ class ObsPlanner(Template):
 
     The left column holds the Plan tab (target, site, instrument and mapping
     controls, and Execute) and the Verify tab (a saved result and Execute).
-    The right column shows the results of the last Execute: the sky view, the
-    downloads, the trajectory plots (collapsed), and the coverage view beside
-    the sensitivity tables.
+    The right column shows the results of the last Execute: the sky view with
+    the legend of its overlays, the downloads, the target altitude and
+    trajectory plots (collapsed), and the coverage view beside the sensitivity
+    tables. While Execute computes, the results show a loading overlay.
 
-    The page keeps the observation description being edited, serialized as
-    JSON, in its `description` store; Execute computes the results from it, or
-    from the description loaded in the Verify tab. The files of each result
-    are made once and kept in its `downloads` store, for the downloads and the
-    coverage view.
+    As in v1, each panel assembles its part of the observation description in
+    the browser, and Execute is enabled, red, once all parts are valid.
+    Execute computes the result on the server and keeps it in the page's
+    `result` store: the figures, tables, view data, the files for the
+    downloads and the coverage view, and the description it was computed
+    from; the page draws everything from that store in the browser.
 
     Parameters
     ----------
@@ -127,20 +135,18 @@ class ObsPlanner(Template):
         super().__init__()
         self._apt_path = config.toltec.apt
         self._toltec = toltec_planner
-        provider = self.child[dmc.MantineProvider]()
-        shell = provider.child[dmc.AppShell](header={"height": 48}, padding="md")
-        header = shell.child[dmc.AppShellHeader]().child[dmc.Group](
-            px="md", h="100%", gap="sm"
-        )
-        header.child[dmc.Title](config.title, order=4)
-        header.child[dmc.Text](config.subtitle, size="sm", c="dimmed")
-        main = shell.child[dmc.AppShellMain]()
-        self.description = main.child[dcc.Store](data=None)
-        self.downloads = main.child[dcc.Store](data=None)
+        self._target_alt_min = config.target_alt_min
+        page = self.child[dmc.MantineProvider]().child[dmc.Box](px="md", pb="md")
+        # As v1: the title with the subtitle after it, above a rule.
+        header = page.child[dmc.Group](gap="sm", align="baseline", py="xs")
+        header.child[dmc.Title](config.title, order=2)
+        header.child[dmc.Text](config.subtitle, c="dimmed")
+        page.child[dmc.Divider](mb="md")
+        self.result = page.child[dcc.Store](data=None)
         # RA and Dec of the target the sky view centers on, in degrees.
-        self.sky_target = main.child[dcc.Store](data=None)
+        self.sky_target = page.child[dcc.Store](data=None)
         # As v1: controls in a fixed-width column, results fill the rest.
-        body = main.child[dmc.Flex](
+        body = page.child[dmc.Flex](
             direction={"base": "column", "md": "row"}, gap="md", align="flex-start"
         )
         controls = body.child[dmc.Box](w={"base": "100%", "md": 375}, flex="none")
@@ -149,15 +155,10 @@ class ObsPlanner(Template):
         # Left column: the Plan and Verify tabs.
         tabs = controls.child[dmc.Tabs](value="plan", variant="pills")
         tab_list = tabs.child[dmc.TabsList](mb="sm")
-        tab_list.child[dmc.TabsTab]("Plan", value="plan", size="xs")
-        tab_list.child[dmc.TabsTab]("Verify", value="verify", size="xs")
+        tab_list.child[dmc.TabsTab]("Plan", value="plan", size=CONTROL_SIZE)
+        tab_list.child[dmc.TabsTab]("Verify", value="verify", size=CONTROL_SIZE)
         plan = tabs.child[dmc.TabsPanel](value="plan").child[dmc.Stack](gap="sm")
         self.target = plan.child(TargetPanel(target_alt_min=config.target_alt_min))
-        self.visibility = self.target.footer.child(
-            VisibilityPanel(
-                description=self.description, target_alt_min=config.target_alt_min
-            )
-        )
         self.site_info = self.target.footer.child(LmtInfoPanel())
         self.site = plan.child(LmtPanel())
         self.instrument = plan.child(ToltecPanel(self._toltec))
@@ -170,113 +171,107 @@ class ObsPlanner(Template):
         )
         execute_row = self.mapping.footer.child[dmc.Group](justify="space-between")
         self._details_button = execute_row.child[dmc.Button](
-            "Details ...", size="xs", variant="subtle"
+            "Details ...", size=CONTROL_SIZE, variant="subtle"
         )
-        # As v1, Execute turns red when it can run.
         self._execute = execute_row.child[dmc.Button](
-            "Execute", size="xs", color="red", disabled=True
+            "Execute", size=CONTROL_SIZE, disabled=True
         )
         self._details = self.mapping.footer.child[dmc.Collapse](opened=False)
-        self._details_text = self._details.child[dmc.Code]("N/A", block=True, fz="xs")
+        self._details_text = self._details.child[dmc.Code]("N/A", block=True)
         self.verify = tabs.child[dmc.TabsPanel](value="verify").child(
             VerifyPanel(t_exp_max=config.t_exp_max, apt_path=config.toltec.apt)
         )
 
+        self._add_results(results.child[dmc.Stack](gap="sm"), config)
+
+    def _add_results(self, results: LazyComponent, config: ObsPlannerConfig) -> None:
         # Right column, as in v1: sky view, downloads and the trajectory
         # toggle, trajectory plots, then coverage view beside the sensitivity.
-        results = results.child[dmc.Stack](gap="md")
-        sky = results.child[dmc.Box]()
+        # As v1's spinners, each block shows a loading overlay during Execute.
+        sky = results.child[dmc.Box](pos="relative")
         views_slot = results.child[dmc.Box]()
         downloads_row = results.child[dmc.Group](justify="space-between")
-        self.exports = downloads_row.child(ExportsPanel(downloads=self.downloads))
+        self.exports = downloads_row.child(ExportsPanel(result=self.result))
         self._trajectory_button = downloads_row.child[dmc.Button](
-            "Show trajectories in horizontal coordinates ...",
-            size="xs",
+            "Show Trajs in Horizontal Coords...",
+            size=CONTROL_SIZE,
             variant="subtle",
             disabled=True,
         )
         self._trajectory_collapse = results.child[dmc.Collapse](opened=False)
-        self.trajectory = self._trajectory_collapse.child(TrajectoryPanel())
+        trajectory = self._trajectory_collapse.child[dmc.Box](pos="relative")
+        self.trajectory = trajectory.child(TrajectoryPanel())
         bottom = results.child[dmc.SimpleGrid](cols={"base": 1, "lg": 2})
-        coverage = bottom.child[dmc.Box]()
-        self.toltec_results = bottom.child(ToltecResultsPanel())
+        coverage = bottom.child[dmc.Box](pos="relative")
+        sensitivity = bottom.child[dmc.Box](pos="relative")
+        self.toltec_results = sensitivity.child(ToltecResultsPanel())
+        self._busy = [
+            parent.child[dmc.LoadingOverlay](visible=False, zIndex=10)
+            for parent in (sky, trajectory, coverage, sensitivity)
+        ]
         views: ViewsPanel
         if isinstance(config.viewer, FireflyViewerConfig):
             views = FireflyViewsPanel(
                 config.viewer.url,
                 sky_target=self.sky_target,
-                downloads=self.downloads,
+                result=self.result,
                 sky_parent=sky,
                 coverage_parent=coverage,
             )
         else:
             views = AladinViewsPanel(
                 sky_target=self.sky_target,
-                downloads=self.downloads,
+                result=self.result,
                 sky_parent=sky,
                 coverage_parent=coverage,
             )
         self.views = views_slot.child(views)
 
     def _set_sky_target(
-        self, resolved: dict | None, verify_data: dict | None
+        self, resolved: dict | None, loaded: dict | None
     ) -> list[float] | NoUpdate:
         # As v1: the sky view follows the target being edited, or the target
         # of a loaded results file.
-        if ctx.triggered_id == self.verify.description().id:
-            if verify_data is None:
+        if ctx.triggered_id == self.verify.loaded().id:
+            if loaded is None:
                 return dash.no_update
-            target = ObservationDescription.model_validate(verify_data).target
+            description = ObservationDescription.model_validate(loaded["description"])
+            target = description.target
             return [target.ra.degree, target.dec.degree]
         if resolved is None:
             return dash.no_update
         return [resolved["ra_deg"], resolved["dec_deg"]]
 
     def setup_callbacks(self, app: Dash) -> None:
-        """Assemble the description, and compute its results on Execute.
+        """Enable Execute, compute its result, and draw the result.
 
         Parameters
         ----------
         app : dash.Dash
             Application receiving the callbacks.
         """
-
-        @app.callback(
-            Output(self.description(), "data"),
-            Input(self.target.target(), "data"),
-            Input(self.mapping.mapping(), "data"),
-            Input(self.site.site(), "data"),
-            Input(self.instrument.instrument(), "data"),
-        )
-        def _make_description(
-            target: dict | None,
-            mapping: dict | None,
-            site: dict | None,
-            instrument: dict | None,
-        ) -> dict[str, Any] | None:
-            if target is None or mapping is None or site is None or instrument is None:
-                return None
-            description = ObservationDescription.model_validate(
-                target | mapping | site | {"instrument": instrument}
-            )
-            return description.model_dump(mode="json")
-
         app.callback(
             Output(self.sky_target(), "data"),
             Input(self.target.resolved(), "data"),
-            Input(self.verify.description(), "data"),
+            Input(self.verify.loaded(), "data"),
         )(self._set_sky_target)
-
-        @app.callback(
+        # As v1: Execute is enabled, red, once the mapping and the target are
+        # valid.
+        app.clientside_callback(
+            """
+            function(presetError, mapping, target) {
+                if (presetError || !mapping || !target) {
+                    return ["blue", true];
+                }
+                return ["red", false];
+            }
+            """,
+            Output(self._execute(), "color"),
             Output(self._execute(), "disabled"),
-            Output(self._details_text(), "children"),
-            Input(self.description(), "data"),
+            Input(self.mapping.preset_select(), "error"),
+            Input(self.mapping.mapping(), "data"),
+            Input(self.target.target(), "data"),
         )
-        def _enable_execute(data: dict | None) -> tuple[bool, str]:
-            if data is None:
-                return True, "N/A"
-            return False, json.dumps(data, indent=2)
-
         for button, collapse in (
             (self._details_button, self._details),
             (self._trajectory_button, self._trajectory_collapse),
@@ -288,72 +283,104 @@ class ObsPlanner(Template):
                 State(collapse(), "opened"),
                 prevent_initial_call=True,
             )
-
-        graphs = self.trajectory.graphs
-        results = self.toltec_results
-
-        @app.callback(
-            [Output(graph(), "figure") for graph in graphs.values()],
-            Output(results.sensitivity(), "children"),
-            Output(results.status(), "children"),
-            Output(self.views.views(), "data"),
-            Output(self.downloads(), "data"),
-            Output(self._trajectory_button(), "disabled"),
+        app.callback(
+            Output(self.result(), "data"),
             Input(self._execute(), "n_clicks"),
             Input(self.verify.execute(), "n_clicks"),
-            State(self.description(), "data"),
-            State(self.verify.description(), "data"),
+            State(self.target.target(), "data"),
+            State(self.mapping.mapping(), "data"),
+            State(self.site.site(), "data"),
+            State(self.instrument.instrument(), "data"),
+            State(self.verify.loaded(), "data"),
             State(self.instrument.coverage_unit(), "value"),
             # As v1's spinners: the Execute buttons show that results are
-            # being computed, and take no second click meanwhile.
+            # being computed, and take no second click meanwhile; the results
+            # they will replace are covered.
             running=[
                 (Output(self._execute(), "loading"), True, False),
                 (Output(self.verify.execute(), "loading"), True, False),
+                *((Output(busy(), "visible"), True, False) for busy in self._busy),
             ],
             prevent_initial_call=True,
+        )(self._plan)
+        # As v1: the page draws the result from its store in the browser.
+        graphs = self.trajectory.graphs
+        app.clientside_callback(
+            f"""
+            function(result) {{
+                const noUpdate = window.dash_clientside.no_update;
+                if (!result) {{
+                    return Array({len(graphs) + 4}).fill(noUpdate);
+                }}
+                return [
+                    ...{json.dumps(list(graphs))}.map(key => result.figures[key]),
+                    result.sensitivity,
+                    result.legend,
+                    JSON.stringify(result.description, null, 2),
+                    false,
+                ];
+            }}
+            """,
+            [Output(graph(), "figure") for graph in graphs.values()],
+            Output(self.toltec_results.sensitivity(), "children"),
+            Output(self.views.legend(), "children"),
+            Output(self._details_text(), "children"),
+            Output(self._trajectory_button(), "disabled"),
+            Input(self.result(), "data"),
         )
-        def _plan(
-            _plan_clicks: int | None,
-            _verify_clicks: int | None,
-            plan_data: dict | None,
-            verify_data: dict | None,
-            coverage_unit: Literal["depth", "time"],
-        ) -> list:
-            verifying = ctx.triggered_id == self.verify.execute().id
-            data = verify_data if verifying else plan_data
-            if data is None:
-                return [dash.no_update] * (len(graphs) + 5)
-            description = ObservationDescription.model_validate(data)
-            plan = plan_observation(description, self._toltec)
-            trajectory, result = plan.trajectory, plan.result
-            figures = make_trajectory_figures(
-                trajectory,
-                description.ref_frame,
-                footprint=result.footprint,
-                footprint_name=TOLTEC_ARRAYS[result.array_name].name_long,
+
+    def _plan(  # noqa: PLR0913, PLR0917
+        self,
+        _plan_clicks: int | None,
+        _verify_clicks: int | None,
+        target: dict | None,
+        mapping: dict | None,
+        site: dict | None,
+        instrument: dict | None,
+        loaded: dict | None,
+        coverage_unit: Literal["depth", "time"],
+    ) -> dict[str, Any] | NoUpdate:
+        # As v1: a loaded results file is executed in the coverage unit it
+        # records; the Plan tab uses the instrument settings.
+        if ctx.triggered_id == self.verify.execute().id:
+            if loaded is None:
+                return dash.no_update
+            description = ObservationDescription.model_validate(loaded["description"])
+            coverage_unit = loaded["coverage_unit"]
+        else:
+            if target is None or mapping is None or site is None or instrument is None:
+                return dash.no_update
+            description = ObservationDescription.model_validate(
+                target | mapping | site | {"instrument": instrument}
             )
-            status = (
-                f"{'Verified result: ' if verifying else ''}"
-                f"{TOLTEC_ARRAYS[result.array_name].name_long}, "
-                f"{description.atm_model_name} atmosphere. "
-                f"{result.n_passes} pass(es) reach the desired depth "
-                f"of {description.desired_sens}."
-            )
-            downloads = make_downloads(
+        plan = plan_observation(description, self._toltec)
+        trajectory, result = plan.trajectory, plan.result
+        figures = make_trajectory_figures(
+            trajectory,
+            description.ref_frame,
+            footprint=result.footprint,
+            footprint_name=TOLTEC_ARRAYS[result.array_name].name_long,
+        )
+        figures["visibility"] = make_visibility_figure(
+            get_target_visibility(
+                description.target, description.t0, get_lmt_observer()
+            ),
+            description.t0 + description.get_t_exp(),
+            self._target_alt_min,
+        )
+        view_description = make_view_description(
+            description.target, trajectory, result, coverage_unit
+        )
+        return {
+            "figures": figures,
+            "sensitivity": make_sensitivity_tabs(result, plan.time_cost),
+            "legend": self.views.make_legend(view_description),
+            "views": self.views.make_views(view_description),
+            "downloads": make_downloads(
                 plan,
                 apt_path=self._apt_path,
                 coverage_unit=coverage_unit,
                 created_at=_now(),
-            )
-            return [
-                *(figures[key] for key in graphs),
-                make_sensitivity_tabs(result, plan.time_cost),
-                status,
-                self.views.make_views(
-                    make_view_description(
-                        description.target, trajectory, result, coverage_unit
-                    )
-                ),
-                downloads,
-                False,
-            ]
+            ),
+            "description": description.model_dump(mode="json"),
+        }

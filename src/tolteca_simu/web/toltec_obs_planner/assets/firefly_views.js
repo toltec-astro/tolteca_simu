@@ -279,17 +279,17 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
       return radec;
     },
     render_firefly_views: function (
-      views,
-      downloads,
+      result,
       settings,
       radec,
       statusId,
       skyElementId,
       coverageElementId,
     ) {
-      if (!views || !downloads || !radec) {
-        return "Press Execute to plan the observation.";
+      if (!result || !radec) {
+        return "";
       }
+      const { views, downloads } = result;
       const fireflyUrl = settings.url;
       const report = (text) =>
         window.dash_clientside.set_props(statusId, { children: text });
@@ -316,10 +316,8 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
           }
           drawing.push(drawCoverage(firefly, views, upload, coverageViewerId));
           await Promise.all(drawing);
-          report(
-            "Use each view's toolbar for color, stretch and layers; " +
-              "detectors are a layer to switch on.",
-          );
+          // The legend under the sky view names the overlays.
+          report("");
         })
         .catch((error) => report(error.message));
       return "Drawing the views…";

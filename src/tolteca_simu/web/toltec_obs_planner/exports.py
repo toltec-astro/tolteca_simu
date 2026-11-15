@@ -9,8 +9,11 @@ from typing import TYPE_CHECKING, Any, Literal
 import dash_mantine_components as dmc
 from dash import ClientsideFunction, Input, Output, State, dcc
 from dash_component_template import Template
+from dash_iconify import DashIconify
 
 from tolteca_simu.toltec.exports import make_export_files
+
+from .controls import CONTROL_SIZE
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -69,58 +72,97 @@ def make_downloads(
     }
 
 
+# The button label and color, and the tooltip of each download, as v1's.
+_DOWNLOADS = {
+    "lmtot": (
+        "LMT OT Script",
+        "blue",
+        "Download LMT Observation Tool script to execute the observation at LMT.",
+    ),
+    "coverage": (
+        "Coverage Map",
+        "blue",
+        (
+            "Download the generated FITS (approximate) coverage image for the "
+            "SINGLE observation (NOT COADDED)."
+        ),
+    ),
+    "results": (
+        "Export Results for Proposal Submission",
+        "green",
+        (
+            "Export the current state and calculation results as ECSV table to be "
+            "used for proposal submission."
+        ),
+    ),
+}
+
+
 class ExportsPanel(Template):
     """Download buttons for the files of the current result.
 
-    The buttons save the files from the page's `downloads` store, without a
-    server request.
+    The buttons save the files of the result in the page's `result` store,
+    without a server request. As in v1, they are disabled until a result
+    exists.
 
     Parameters
     ----------
-    downloads : dash_component_template.LazyComponent
-        Store holding the `make_downloads` files of the current result, or None.
+    result : dash_component_template.LazyComponent
+        Store holding the current result, whose ``downloads`` are the
+        `make_downloads` files, or None.
     """
 
-    def __init__(self, downloads: LazyComponent) -> None:
+    def __init__(self, result: LazyComponent) -> None:
         super().__init__()
-        self._downloads = downloads
+        self._result = result
         group = self.child[dmc.Group](gap="xs")
-        self.lmtot_button = group.child[dmc.Button](
-            "LMT OT script", size="xs", variant="light"
-        )
-        self.coverage_button = group.child[dmc.Button](
-            "Coverage map (FITS)", size="xs", variant="light"
-        )
-        self.results_button = group.child[dmc.Button](
-            "Results for proposal (ECSV)", size="xs", color="green"
-        )
+        buttons = {}
+        for key, (label, color, tooltip) in _DOWNLOADS.items():
+            buttons[key] = group.child[dmc.Tooltip](
+                label=tooltip, multiline=True, w=280, withArrow=True
+            ).child[dmc.Button](
+                label,
+                size=CONTROL_SIZE,
+                color=color,
+                leftSection=DashIconify(icon="tabler:download", width=16),
+                disabled=True,
+            )
+        self.lmtot_button = buttons["lmtot"]
+        self.coverage_button = buttons["coverage"]
+        self.results_button = buttons["results"]
         self.lmtot_download = group.child[dcc.Download]()
         self.results_download = group.child[dcc.Download]()
         self.coverage_download = group.child[dcc.Download]()
 
     def setup_callbacks(self, app: Dash) -> None:
-        """Save each file of the current result when its button is clicked.
+        """Enable the buttons for a result; save its files on click.
 
         Parameters
         ----------
         app : dash.Dash
             Application receiving the callbacks.
         """
+        buttons = (self.lmtot_button, self.coverage_button, self.results_button)
+        app.clientside_callback(
+            "function(result) { return Array(3).fill(!result); }",
+            [Output(button(), "disabled") for button in buttons],
+            Input(self._result(), "data"),
+        )
         for key, button, download in (
             ("lmtot", self.lmtot_button, self.lmtot_download),
             ("results", self.results_button, self.results_download),
         ):
             app.clientside_callback(
                 f"""
-                function(_n_clicks, downloads) {{
-                    return downloads
-                        ? downloads["{key}"]
+                function(_n_clicks, result) {{
+                    return result
+                        ? result.downloads["{key}"]
                         : window.dash_clientside.no_update;
                 }}
                 """,
                 Output(download(), "data"),
                 Input(button(), "n_clicks"),
-                State(self._downloads(), "data"),
+                State(self._result(), "data"),
                 prevent_initial_call=True,
             )
         app.clientside_callback(
@@ -129,6 +171,6 @@ class ExportsPanel(Template):
             ),
             Output(self.coverage_download(), "data"),
             Input(self.coverage_button(), "n_clicks"),
-            State(self._downloads(), "data"),
+            State(self._result(), "data"),
             prevent_initial_call=True,
         )

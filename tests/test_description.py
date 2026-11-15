@@ -7,7 +7,7 @@ from tolteca_simu.mapping import LissajousPattern
 from tolteca_simu.planning import MappingPresets, ObservationDescription, parse_target
 from tolteca_simu.planning.presets import get_default_presets_path
 from tolteca_simu.toltec.settings import ToltecSettings
-from tolteca_simu.web.toltec_obs_planner.mapping import make_mapping_data
+from tolteca_simu.web.toltec_obs_planner.mapping import make_preset_data
 
 PRESETS = MappingPresets.from_yaml(get_default_presets_path())
 
@@ -79,7 +79,11 @@ def test_mapping_panel_data_validates(key: str) -> None:
     # Regression: NumPy 2 reprs of quantities do not parse as quantities.
     preset = PRESETS.get(key)
     pattern, t_exp = preset.make_mapping({n: p.value for n, p in preset.params.items()})
-    data = make_mapping_data(pattern, "icrs", t_exp, 0.5 * u.mJy)
+    # The page adds the reference frame and the desired depth as entered.
+    data = make_preset_data(pattern, t_exp) | {
+        "ref_frame": "icrs",
+        "desired_sens": "0.5 mJy",
+    }
     description = ObservationDescription.model_validate(
         data
         | {

@@ -1,5 +1,5 @@
-// Downloads of the TolTEC observation planner, saved from the page's
-// downloads store without a server request.
+// Downloads of the TolTEC observation planner, saved from the files of the
+// page's result store without a server request.
 
 window.toltecObsPlanner = window.toltecObsPlanner || {};
 
@@ -20,11 +20,11 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
   window.dash_clientside.toltec_obs_planner || {},
   {
     // Save the coverage FITS file: the store keeps it gzip compressed.
-    save_coverage: async function (_nClicks, downloads) {
-      if (!downloads) {
+    save_coverage: async function (_nClicks, result) {
+      if (!result) {
         return window.dash_clientside.no_update;
       }
-      const { filename, content_gzip } = downloads.coverage;
+      const { filename, content_gzip } = result.downloads.coverage;
       const compressed = await window.toltecObsPlanner.base64ToBlob(
         content_gzip,
         "application/gzip",

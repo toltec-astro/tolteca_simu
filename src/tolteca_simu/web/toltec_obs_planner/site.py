@@ -11,7 +11,7 @@ from dash_component_template import Template
 
 from tolteca_simu.lmt import get_lmt_observer
 
-from .controls import labeled_choice
+from .controls import CONTROL_SIZE, labeled_choice, titled_card
 
 if TYPE_CHECKING:
     from dash import Dash
@@ -30,10 +30,8 @@ class LmtPanel(Template):
 
     def __init__(self) -> None:
         super().__init__()
-        card = self.child[dmc.Card](withBorder=True, padding="sm")
-        stack = card.child[dmc.Stack](gap="xs")
-        stack.child[dmc.Title]("Site: Large Millimeter Telescope", order=5)
-        self._atm, _ = labeled_choice(
+        _, stack = titled_card(self, "Site: Large Millimeter Telescope")
+        self._atm = labeled_choice(
             stack,
             "Atm. Quantile",
             [{"label": f"{q} %", "value": str(q)} for q in _ATM_QUANTILES],
@@ -67,22 +65,18 @@ class LmtInfoPanel(Template):
         observer = get_lmt_observer()
         location = observer.location
         self._info = {
+            "location": (
+                f"Location: {location.lon.to_string()} {location.lat.to_string()}"
+            ),
             "lon": location.lon.degree,
             "timezone_local": observer.timezone.zone,
         }
-        stack = self.child[dmc.Stack](gap=0)
+        stack = self.child[dmc.Stack](gap=0, align="flex-start")
         self._button = stack.child[dmc.Button](
-            "Current Site Info ...",
-            size="xs",
-            variant="subtle",
-            style={"alignSelf": "flex-start"},
+            "Current Site Info ...", size=CONTROL_SIZE, variant="subtle"
         )
         self._collapse = stack.child[dmc.Collapse](opened=False)
-        pre = {"ff": "monospace", "size": "xs", "style": {"whiteSpace": "pre"}}
-        self._collapse.child[dmc.Text](
-            f"Location: {location.lon.to_string()} {location.lat.to_string()}", **pre
-        )
-        self._times = self._collapse.child[dmc.Text](**pre)
+        self._times = self._collapse.child[dmc.Code](self._info["location"], block=True)
         self._timer = stack.child[dcc.Interval](interval=500, disabled=True)
 
     def setup_callbacks(self, app: Dash) -> None:
@@ -114,7 +108,7 @@ class LmtInfoPanel(Template):
                 const lst = window.toltecObsPlanner.getLST(now, info.lon);
                 const lstText = new Date(Math.floor(lst * 3600) * 1000)
                     .toISOString().slice(11, 19);
-                return "Time: " + format("UTC") +
+                return info.location + "\\nTime: " + format("UTC") +
                     "\\nLocal Time: " + format(info.timezone_local) +
                     "\\nLST: " + lstText;
             }}

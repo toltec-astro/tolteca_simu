@@ -11,20 +11,21 @@ backend-independent view description and the panel layout.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import astropy.units as u
 import dash_mantine_components as dmc
 import numpy as np
 from astropy.coordinates import SkyCoord
 from contourpy import contour_generator
-from dash import dcc
+from dash import Input, Output
 from dash_component_template import Template
 
 from tolteca_simu.sky import SkyBoundingBox
 from tolteca_simu.toltec import TOLTEC_ARRAYS
 
 if TYPE_CHECKING:
+    from dash import Dash
     from dash_component_template import LazyComponent
 
     from tolteca_simu.planning import Trajectory
@@ -32,7 +33,9 @@ if TYPE_CHECKING:
 
 __all__ = [
     "SKY_FOV_DEFAULT",
+    "SKY_OVERLAYS",
     "SKY_TARGET_DEFAULT",
+    "SkyOverlay",
     "ViewsPanel",
     "make_view_description",
 ]
@@ -47,6 +50,38 @@ SKY_TARGET_DEFAULT = "M1"
 """Target of the sky view on page load, as in v1."""
 SKY_FOV_DEFAULT = (10 << u.arcmin).to_value(u.deg)
 """Field of view of the sky view on page load, in degrees, as in v1."""
+_EMPTY_TEXT = "Press Execute to plan the observation."
+_HIDDEN_OVERLAY_TEXT = "Off at first: switch it on in the view's layer control."
+
+
+class SkyOverlay(NamedTuple):
+    """Style of a sky view overlay."""
+
+    name: str
+    """Name, in which ``{array}`` stands for the array's long name."""
+    color: str
+    """Line color, as a CSS color."""
+    line_width: int
+    """Line width, in screen pixels."""
+    visible: bool
+    """Whether the overlay is shown at first."""
+
+
+SKY_OVERLAYS = {
+    "trajectory": SkyOverlay(
+        name="Mapping Trajectory", color="red", line_width=1, visible=True
+    ),
+    # Many detectors clutter the view; they are an overlay to switch on.
+    "detectors": SkyOverlay(
+        name="Detectors: {array}", color="blue", line_width=1, visible=False
+    ),
+    "fov": SkyOverlay(name="FOV: {array}", color="#cc66cc", line_width=8, visible=True),
+    "outline": SkyOverlay(
+        name="Coverage Outline", color="#66cccc", line_width=4, visible=True
+    ),
+}
+"""Overlays of the sky view by layer id, named and styled as in v1. Both
+viewer backends and the legend use them."""
 
 
 def _decimate(values: np.ndarray, n_max: int) -> np.ndarray:
@@ -136,16 +171,19 @@ class ViewsPanel(Template):
     """Sky and coverage views, placed where the page puts them.
 
     A backend creates its sky view in ``sky_parent`` and its coverage view in
-    ``coverage_parent``; the panel itself holds the status line and the data
-    of the views. The sky view centers on the target in ``sky_target``.
+    ``coverage_parent``; the panel itself holds the legend of the sky view's
+    overlays and a status line for the drawing and failed states. The sky
+    view centers on the target in ``sky_target``. Until a result exists, the
+    coverage view is covered by a note.
 
     Parameters
     ----------
     sky_target : dash_component_template.LazyComponent
         Store holding the RA and Dec of the target, in degrees, or None.
-    downloads : dash_component_template.LazyComponent
-        Store holding the files of the current result; the coverage view shows
-        its coverage FITS file.
+    result : dash_component_template.LazyComponent
+        Store holding the current result: the views draw its ``views`` (from
+        `make_views`), and the coverage view shows the coverage FITS file of
+        its ``downloads``.
     sky_parent : dash_component_template.LazyComponent
         Container of the sky view.
     coverage_parent : dash_component_template.LazyComponent
@@ -155,23 +193,85 @@ class ViewsPanel(Template):
     def __init__(
         self,
         sky_target: LazyComponent,
-        downloads: LazyComponent,
+        result: LazyComponent,
         sky_parent: LazyComponent,
         coverage_parent: LazyComponent,
     ) -> None:
         super().__init__()
         self._sky_target = sky_target
-        self._downloads = downloads
+        self._result = result
         self._sky_parent = sky_parent
         self._coverage_parent = coverage_parent
-        self._status = self.child[dmc.Text](
-            "Press Execute to plan the observation.", size="xs", c="dimmed"
+        # The legend after a result; the status while views are drawn or when
+        # they fail. Neither takes room while empty.
+        row = self.child[dmc.Box](mih=20)
+        self.legend = row.child[dmc.Group](gap="lg")
+        self._status = row.child[dmc.Text](size="xs", c="dimmed")
+        # The coverage view is empty until a result exists; v1 showed an empty
+        # frame. The note covers the backend's view, added after it.
+        self._coverage_empty = coverage_parent.child[dmc.Overlay](
+            dmc.Paper(
+                dmc.Center(dmc.Text(_EMPTY_TEXT, size="sm", c="dimmed"), h="100%"),
+                withBorder=True,
+                w="100%",
+                h="100%",
+            ),
+            color="var(--mantine-color-body)",
+            backgroundOpacity=1,
+            zIndex=2,
         )
-        self.views = self.child[dcc.Store](data=None)
+
+    @staticmethod
+    def make_legend(description: dict[str, Any]) -> list[Any]:
+        """Return the legend of the sky view's overlays for a result.
+
+        Parameters
+        ----------
+        description : dict
+            A `make_view_description` result.
+
+        Returns
+        -------
+        list
+            One item per overlay of `SKY_OVERLAYS`: a line in its color and
+            its name. The name of an overlay hidden at first is dimmed, with a
+            tooltip saying how to show it.
+        """
+        items: list[Any] = []
+        for overlay in SKY_OVERLAYS.values():
+            name = overlay.name.format(array=description["array_name_long"])
+            item = dmc.Group(
+                [
+                    dmc.Box(w=20, h=3, bg=overlay.color),
+                    dmc.Text(name, size="xs")
+                    if overlay.visible
+                    else dmc.Text(name, size="xs", c="dimmed"),
+                ],
+                gap=6,
+                wrap="nowrap",
+            )
+            if not overlay.visible:
+                item = dmc.Tooltip(item, label=_HIDDEN_OVERLAY_TEXT, withArrow=True)
+            items.append(item)
+        return items
+
+    def setup_callbacks(self, app: Dash) -> None:
+        """Uncover the coverage view once a result exists.
+
+        Parameters
+        ----------
+        app : dash.Dash
+            Application receiving the callbacks.
+        """
+        app.clientside_callback(
+            "function(result) { return result ? 'none' : null; }",
+            Output(self._coverage_empty(), "display"),
+            Input(self._result(), "data"),
+        )
 
     @staticmethod
     def make_views(description: dict[str, Any]) -> dict[str, Any] | None:
-        """Return the data of the views store for a view description.
+        """Return the view data of a result for a view description.
 
         Parameters
         ----------

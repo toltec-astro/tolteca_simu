@@ -102,13 +102,36 @@ def test_date_and_time_inputs_use_the_v1_formats() -> None:
     check_date = panel._check_date  # noqa: SLF001
     check_time = panel._check_time  # noqa: SLF001
     for date in ("2026/10/19", "19-10-2026", "2026-13-45", ""):
-        error, _, mod = check_date(date, resolved)
-        assert (error, mod) == ("Invalid Date. Use yyyy-mm-dd.", {})
-    _, message, mod = check_date("2026-10-19", resolved)
+        assert check_date(date, resolved) == ("Invalid Date. Use yyyy-mm-dd.", None, {})
+    # A valid value shows its message below it and is marked valid.
+    error, message, mod = check_date("2026-10-19", resolved)
+    assert error is None
     assert message.startswith("Total up-time:")
     assert mod == {"valid": True}
+    # As v1, the time format is checked before the date.
     for time in ("6:00", "06:00", "06:00:00.5", "25:00:00"):
-        error, _, _ = check_time(time, "2026-10-19", resolved)
+        error, _, _ = check_time(time, "", resolved)
         assert error == "Invalid time. Use HH:MM:SS."
-    _, message, _ = check_time("06:00:00", "2026-10-19", resolved)
+    error, message, mod = check_time("06:00:00", "2026-10-19", resolved)
+    assert error is None
     assert message.startswith("Target Az = ")
+    assert mod == {"valid": True}
+
+
+def test_altitude_plot_follows_v1() -> None:
+    # v1 ObsPlannerTargetSelect.check_visibility: the plot needs a target and
+    # a date; a valid start time marks the target over the next two minutes.
+    panel = TargetPanel(target_alt_min=20 * u.deg)
+    plot = panel._plot_altitude  # noqa: SLF001
+    resolved = {"name": "M1", "ra_deg": 83.6324, "dec_deg": 22.0174}
+    content, opened = plot(1, "2024-02-15", "06:00:00", None)
+    assert (content.children, opened) == ("Invalid target format.", True)
+    content, _ = plot(1, "2024/02/15", "06:00:00", resolved)
+    assert content.children == "Invalid date format."
+    graph, _ = plot(1, "2024-02-15", "06:00:00", resolved)
+    (marker,) = (t for t in graph.figure.data if t.mode == "markers")
+    assert len(marker.x) == 4
+    graph, _ = plot(1, "2024-02-15", "6 am", resolved)
+    (marker,) = (t for t in graph.figure.data if t.mode == "markers")
+    # Without a valid time, v1 marks from midnight for no time: nothing.
+    assert len(marker.x) == 0

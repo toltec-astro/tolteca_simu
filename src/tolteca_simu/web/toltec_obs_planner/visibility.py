@@ -5,23 +5,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import astropy.units as u
-import dash_mantine_components as dmc
 import numpy as np
 import plotly.graph_objects as go
-from dash import Input, Output, dcc
-from dash_component_template import Template
 
-from tolteca_simu.lmt import get_lmt_observer
-from tolteca_simu.planning import ObservationDescription, get_target_visibility
+from .trajectory import FIGURE_LAYOUT
 
 if TYPE_CHECKING:
     from astropy.time import Time
-    from dash import Dash
-    from dash_component_template import LazyComponent
 
     from tolteca_simu.planning import TargetVisibility
 
-__all__ = ["VisibilityPanel", "make_visibility_figure"]
+__all__ = ["make_visibility_figure"]
 
 
 def make_visibility_figure(
@@ -54,7 +48,7 @@ def make_visibility_figure(
     show_legend = [True, True, False] if b0 > 0 else [False, True, True]
     x = visibility.time.to_datetime()
     alt = visibility.alt.to_value(u.deg)
-    fig = go.Figure()
+    fig = go.Figure(layout=FIGURE_LAYOUT)
     for s, daytime, showlegend in zip(segments, is_daytime, show_legend, strict=True):
         fig.add_scatter(
             x=x[s],
@@ -81,80 +75,8 @@ def make_visibility_figure(
         fillcolor="gray",
         opacity=0.2,
     )
-    fig.update_xaxes(title_text="Time [UT]")
-    fig.update_yaxes(title_text="Target Altitude [deg]", range=[-10, 90])
-    fig.update_layout(
-        template="simple_white",
-        margin={"l": 10, "r": 10, "b": 10, "t": 10},
-        legend={
-            "orientation": "h",
-            "x": 0.5,
-            "y": 1.02,
-            "xanchor": "center",
-            "yanchor": "bottom",
-        },
+    fig.update_xaxes(title_text="Time [UT]", automargin=True)
+    fig.update_yaxes(
+        title_text="Target Altitude [deg]", automargin=True, range=[-10, 90]
     )
     return fig
-
-
-class VisibilityPanel(Template):
-    """Plot of the target elevation over the observing day, in a modal.
-
-    Parameters
-    ----------
-    description : dash_component_template.LazyComponent
-        Store holding the serialized observation description, or None.
-    target_alt_min : astropy.units.Quantity
-        Lowest usable elevation.
-    """
-
-    def __init__(self, description: LazyComponent, target_alt_min: u.Quantity) -> None:
-        super().__init__()
-        self._description = description
-        self._target_alt_min = target_alt_min
-        row = self.child[dmc.Group](justify="flex-end")
-        self._plot_button = row.child[dmc.Button](
-            "Plot Alt. vs Time", size="xs", disabled=True
-        )
-        self._modal = row.child[dmc.Modal](
-            title="Target altitude", size="xl", opened=False
-        )
-        self._graph = self._modal.child[dcc.Graph](
-            figure=go.Figure(layout={"template": "simple_white"}),
-            config={"displaylogo": False},
-        )
-
-    def setup_callbacks(self, app: Dash) -> None:
-        """Plot the visibility of the current description.
-
-        Parameters
-        ----------
-        app : dash.Dash
-            Application receiving the callbacks.
-        """
-        app.clientside_callback(
-            "function(_n_clicks) { return true; }",
-            Output(self._modal(), "opened"),
-            Input(self._plot_button(), "n_clicks"),
-            prevent_initial_call=True,
-        )
-
-        @app.callback(
-            Output(self._graph(), "figure"),
-            Output(self._plot_button(), "disabled"),
-            Input(self._description(), "data"),
-            prevent_initial_call=True,
-        )
-        def _plot(data: dict | None) -> tuple[go.Figure, bool]:
-            if data is None:
-                return go.Figure(layout={"template": "simple_white"}), True
-            description = ObservationDescription.model_validate(data)
-            visibility = get_target_visibility(
-                description.target, description.t0, get_lmt_observer()
-            )
-            figure = make_visibility_figure(
-                visibility,
-                description.t0 + description.get_t_exp(),
-                self._target_alt_min,
-            )
-            return figure, False

@@ -125,13 +125,14 @@ The description has the fields of
 {py:class}`~tolteca_simu.planning.ObservationDescription`. Quote the start time
 `t0`; unquoted, YAML reads it as a date and time that the description does not
 accept. A results file (`.ecsv`) written by the planner can be given instead:
-its description is planned again, as in the **Verify** tab.
+its description is planned again in the coverage unit it records, as in the
+**Verify** tab.
 
-`--output_path` is the directory for the files, by default the current one;
-`--coverage_unit time` writes the coverage map in s/pixel instead of mJy/beam.
-Existing files are kept, and the command fails, unless you pass `--overwrite`.
-Place the observation file after `--`, which ends the list of configuration
-files.
+`--output_path` is the directory for the files, by default the current one.
+`--coverage_unit` writes the coverage map in mJy/beam (`depth`, the default for
+a description) or in s/pixel (`time`). Existing files are kept, and the command
+fails, unless you pass `--overwrite`. Place the observation file after `--`,
+which ends the list of configuration files.
 
 ## Choose the viewer
 
@@ -169,27 +170,38 @@ The left column holds the observation; the right column shows the results.
 1. In the **Plan** tab, enter the **Target** as a coordinate or a name, the
    **Obs Date** and the **Obs Start Time (UT)**. The check below each field
    shows the resolved coordinate, the target's up-time, and its position at the
-   start.
+   start; the target must be up at night at the start time. **Plot Alt. vs
+   Time** plots the target altitude over the date.
 2. Under **Site**, choose the **Atm. Quantile** of the conditions.
 3. Under **Instrument: TolTEC**, choose the **Stokes Params**, the **TolTEC
    band** whose depth sets the number of passes, and the **Coverage Unit** of
    the coverage map.
-4. Under **Mapping**, choose a preset, enter the **Desired Map RMS**, adjust the
-   pattern parameters within their ranges, and choose the **Mapping Reference
-   Frame**.
-5. Press **Execute**.
+4. Under **Mapping**, enter the **Desired Map RMS**, choose a mapping pattern
+   preset, adjust its parameters within their ranges, and choose the **Mapping
+   Reference Frame**. Polarimetry has its own preset and maps in RA/Dec only;
+   changing the **Stokes Params** clears the preset choice.
+5. Press **Execute**. It turns red once every check passes.
 
-The sky view then shows the trajectory, the detectors, the field of view and the
-coverage outline over the sky survey. The trajectory plots, the coverage view
-and the **TolTEC sensitivity** tables follow below.
+The sky view then shows the trajectory, the field of view and the coverage
+outline over the sky survey, named in the legend below it; the detectors are an
+overlay to switch on in the view's layer control. The coverage view and the
+sensitivity tables follow below, and **Show Trajs in Horizontal Coords...**
+opens the target altitude and trajectory plots. In the tables, a row's help icon
+explains the quantity; the highlighted **Project Total Time (incl. Overhead)**
+is the time to request in a proposal. **Details ...** shows the observation
+description of the result.
 
-Download the results with the buttons above the trajectory plots:
+Once the results are computed, download them with the buttons below the sky
+view:
 
-| Download                    | Contents                                                                  |
-| --------------------------- | ------------------------------------------------------------------------- |
-| LMT OT script               | The observation as a script for the LMT observing tool.                   |
-| Coverage map (FITS)         | The coverage of the chosen band, in the chosen coverage unit.             |
-| Results for proposal (ECSV) | Sensitivity and project time per array, with the observation description. |
+| Download                               | Contents                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| LMT OT Script                          | The observation as a script for the LMT observing tool.                   |
+| Coverage Map                           | The coverage of the chosen band, in the chosen coverage unit (FITS).      |
+| Export Results for Proposal Submission | Sensitivity and project time per array, with the observation description. |
 
-To reproduce earlier results, open the **Verify** tab, upload a results ECSV
-file under **Upload result to verify**, and press **Execute**.
+To reproduce earlier results, open the **Verify** tab and upload a results ECSV
+file of at most 20 kB under **Upload Result to Verify**. **Details** lists what
+the file records, with an alert if it was made with another array property
+table. Press **Execute** to show its results, with the coverage map in the unit
+the file records.

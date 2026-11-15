@@ -1,24 +1,84 @@
-/* Visual cues of the v1 planner on Mantine inputs (see controls.py). */
+/* v1's cues on the planner's Mantine inputs (controls.py): the name and unit
+   segments attached to the input, the valid state (data-valid, from the mod
+   property), and a mark inside a valid or invalid input. */
 
-/* A valid checked input: green border, check mark, feedback in green. */
-.toltec-field[data-valid] input {
+/* A name or unit attached to the input, as v1's input-group addons. */
+.planner-addon {
+  background-color: var(--mantine-color-gray-1);
+  color: var(--mantine-color-text);
+}
+
+[data-mantine-color-scheme="dark"] .planner-addon {
+  background-color: var(--mantine-color-dark-5);
+}
+
+.planner-addon[data-position="left"] {
+  border-inline-end: 1px solid var(--mantine-color-default-border);
+}
+
+.planner-addon[data-position="right"] {
+  border-inline-start: 1px solid var(--mantine-color-default-border);
+}
+
+/* The value keeps the input's own padding after a name and before a unit, as
+   beside v1's addons; Mantine pads the value by the section width only. */
+.mantine-Input-wrapper:has(.planner-addon[data-position="left"])
+  .mantine-Input-input {
+  padding-inline-start: calc(
+    var(--input-left-section-width) + var(--input-padding)
+  );
+}
+
+.mantine-Input-wrapper:has(.planner-addon[data-position="right"])
+  .mantine-Input-input {
+  padding-inline-end: calc(
+    var(--input-right-section-width) + var(--input-padding)
+  );
+}
+
+/* A valid input: green border and message, as Mantine's error state is red. */
+[data-valid] .mantine-Input-input {
   --input-bd: var(--mantine-color-green-filled);
+  --input-bd-focus: var(--mantine-color-green-filled);
 }
 
-.toltec-check {
-  visibility: hidden;
-  color: var(--mantine-color-green-filled);
-}
-
-.toltec-field[data-valid] .toltec-check {
-  visibility: visible;
-}
-
-.toltec-feedback {
+[data-valid] .mantine-InputWrapper-description {
   color: var(--mantine-color-green-text);
 }
 
-/* Dash's :invalid outline conflicts with Mantine's own error style. */
-input:invalid {
-  outline: none !important;
+/* The mark of a valid or invalid input, inside it on the right, before a
+   right section such as the dropdown chevron. The shapes are Bootstrap's
+   (MIT), drawn in the theme's green and red. */
+[data-valid] .mantine-Input-input,
+.mantine-Input-wrapper[data-error] .mantine-Input-input {
+  padding-inline-end: calc(var(--input-padding-inline-end) + 1.5rem);
+}
+
+[data-valid] .mantine-Input-wrapper::after,
+.mantine-Input-wrapper[data-error]::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  inset-inline-end: 0.5rem;
+  width: 1rem;
+  height: 1rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+  mask: no-repeat center / contain;
+}
+
+[data-valid] .mantine-Input-wrapper[data-with-right-section]::after,
+.mantine-Input-wrapper[data-error][data-with-right-section]::after {
+  inset-inline-end: calc(var(--input-right-section-size) + 0.125rem);
+}
+
+[data-valid] .mantine-Input-wrapper::after {
+  background-color: var(--mantine-color-green-filled);
+  mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3e%3cpath d='M2.3 6.73.6 4.53c-.4-1.04.46-1.4 1.1-.8l1.1 1.4 3.4-3.8c.6-.63 1.6-.27 1.2.7l-4 4.6c-.43.5-.8.4-1.1.1z'/%3e%3c/svg%3e");
+}
+
+.mantine-Input-wrapper[data-error]::after {
+  background-color: var(--mantine-color-error);
+  mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='black'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath stroke-linejoin='round' d='M5.8 3.6h.4L6 6.5z'/%3e%3ccircle cx='6' cy='8.2' r='.6' fill='black' stroke='none'/%3e%3c/svg%3e");
 }

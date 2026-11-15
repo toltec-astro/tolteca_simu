@@ -177,7 +177,12 @@ def test_lmtot_script_matches_v1(case: tuple) -> None:
 def test_results_table_matches_v1(case: tuple) -> None:
     c, plan = case
     table = make_results_table(
-        plan.description, plan.result, plan.time_cost, APT, created_at=datetime.now(UTC)
+        plan.description,
+        plan.result,
+        plan.time_cost,
+        APT,
+        coverage_unit=c["coverage_map_type"],
+        created_at=datetime.now(UTC),
     )
     assert table.colnames == V1_COLUMNS
     for row in c["sens_table"]:
@@ -197,13 +202,23 @@ def test_results_table_matches_v1(case: tuple) -> None:
 
 
 def test_results_ecsv_reloads_description(case: tuple) -> None:
-    _, plan = case
+    c, plan = case
     table = make_results_table(
-        plan.description, plan.result, plan.time_cost, APT, created_at=datetime.now(UTC)
+        plan.description,
+        plan.result,
+        plan.time_cost,
+        APT,
+        coverage_unit=c["coverage_map_type"],
+        created_at=datetime.now(UTC),
     )
     reloaded, meta = read_results_metadata(write_results_ecsv(table))
     assert reloaded == plan.description
     assert meta["apt"] == APT
+    # As v1's configuration, the file records its coverage map unit.
+    assert meta["coverage_unit"] == c["coverage_map_type"]
+    del table.meta["coverage_unit"]
+    with pytest.raises(ValueError, match="no coverage unit"):
+        read_results_metadata(write_results_ecsv(table))
 
 
 def test_coverage_fits_headers_match_v1(case: tuple) -> None:
@@ -243,7 +258,12 @@ def test_export_files_are_the_result_files(
         buffer.getvalue(),
     )
     table = make_results_table(
-        plan.description, plan.result, plan.time_cost, APT, created_at=created_at
+        plan.description,
+        plan.result,
+        plan.time_cost,
+        APT,
+        coverage_unit=unit,
+        created_at=created_at,
     )
     assert files["results"] == (
         "toltec_obs_planner_results.ecsv",

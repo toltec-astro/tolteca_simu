@@ -166,9 +166,12 @@ decision.
   observation description interactively and inspect its planning results.
 - It is provided as the module `tolteca_simu.web.toltec_obs_planner` and is the
   first deliverable of this package.
-- The application is a client of the planning API. Interactive state is the
-  observation description; results are recomputed from it, not stored
-  separately.
+- The application is a client of the planning API. It keeps the workflow, state
+  handling and cues of the v1 planner; a difference from v1 needs the
+  maintainer's approval.
+- Interactive state is the observation description, which each panel assembles
+  from its controls. Execute computes the results from it; the page keeps the
+  last results only to show and download them.
 - The application composes shared planning views with the views of the selected
   instrument specialization.
 - The site, instrument, title, presets, calibration artifacts, conditions, and
@@ -176,17 +179,23 @@ decision.
   configuration system. The application does not read environment variables
   directly.
 - A user can export the current observation description and its observing
-  script, and reload a description to restore the same results.
-- The description is checked as the observer edits it; results are computed when
-  the observer executes it (Plan), or executes the description recorded in a
-  loaded results file (Verify).
+  script. The results table records the description and the coverage unit;
+  loading it restores the same results.
+- Each part of the description is checked as the observer edits it, and Execute
+  is enabled once every check passes: the target resolves, it is up at night on
+  the date and high enough at the start time, a preset is chosen with valid
+  parameters, and the desired depth is set. No preset is chosen at first; an
+  instrument change that changes which presets apply clears the choice.
+- Results are computed when the observer executes the description (Plan), or the
+  description recorded in a loaded results file, in the coverage unit that file
+  records (Verify).
 - The page follows the layout of the v1 planner that observers know: controls in
   a left column; the sky view, the downloads, the trajectory plots, and the
   coverage view beside the sensitivity tables in the right column.
-- Controls keep the cues of the v1 planner: an input shows its name before and
-  its unit after the value; the target, date, start time, desired depth and
-  preset show the result of their check below them, marked valid or invalid.
-  Date and time checks inform; they do not block Execute.
+- Controls keep the cues of the v1 planner: an input shows its name and unit as
+  segments attached to the value; the target, date, start time, desired depth
+  and preset show the result of their check below them, marked valid or invalid;
+  Execute is marked when it can run.
 - Two views show the planning results, as in v1. The sky view shows a HiPS
   survey from page load on, centered on the target as the observer edits it, or
   on the target of a loaded results file. Executing sets its field of view to

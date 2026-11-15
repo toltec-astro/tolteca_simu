@@ -1,10 +1,11 @@
 // Sky and coverage views of the TolTEC observation planner, drawn by Aladin
 // Lite (dash_aladin_lite).
 //
-// The sky view takes its field of view and layers from the views store; its
-// center follows the target separately, as in v1. The coverage view shows
-// the result's coverage FITS file, which the page keeps gzip compressed for its
-// download: it is decompressed here and given to Aladin Lite as a blob URL.
+// The sky view takes its field of view and layers from the views of the
+// result store; its center follows the target separately, as in v1. The
+// coverage view shows the result's coverage FITS file, which the page keeps
+// gzip compressed for its download: it is decompressed here and given to
+// Aladin Lite as a blob URL.
 
 // The blob URL of the coverage image shown now.
 let coverageUrl = null;
@@ -13,15 +14,13 @@ window.dash_clientside = window.dash_clientside || {};
 window.dash_clientside.toltec_obs_planner = Object.assign(
   window.dash_clientside.toltec_obs_planner || {},
   {
-    render_aladin_views: async function (views, downloads) {
+    render_aladin_views: async function (result) {
       const noUpdate = window.dash_clientside.no_update;
-      if (!views || !downloads) {
-        return [
-          ...Array(5).fill(noUpdate),
-          "Press Execute to plan the observation.",
-        ];
+      if (!result) {
+        return [...Array(5).fill(noUpdate), ""];
       }
-      const { filename, content_gzip } = downloads.coverage;
+      const { views, downloads } = result;
+      const { content_gzip } = downloads.coverage;
       const compressed = await window.toltecObsPlanner.base64ToBlob(
         content_gzip,
         "application/gzip",
@@ -39,7 +38,8 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
         id: "coverage",
         name: views.coverage_title,
         url: coverageUrl,
-        colormap: "viridis",
+        // As v1's JS9 view.
+        colormap: "grayscale",
         base: true,
       };
       const { sky, coverage } = views;
@@ -49,8 +49,8 @@ window.dash_clientside.toltec_obs_planner = Object.assign(
         coverage.target,
         coverage.fov,
         [image, ...coverage.layers],
-        `Use each view's layer control for layers and, on ${filename}, ` +
-          "the colormap, stretch and cuts; detectors are a layer to switch on.",
+        // The legend under the sky view names the overlays.
+        "",
       ];
     },
   },

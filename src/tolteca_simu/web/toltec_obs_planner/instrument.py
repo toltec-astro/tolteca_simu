@@ -8,9 +8,15 @@ import dash_mantine_components as dmc
 from dash import Input, Output, dcc
 from dash_component_template import Template
 
-from tolteca_simu.toltec import TOLTEC_ARRAYS
+from tolteca_simu.toltec import TOLTEC_ARRAYS, ToltecArrayName
 
-from .controls import hover_card, labeled_choice, section_width
+from .controls import (
+    CONTROL_SIZE,
+    hover_card,
+    labeled_choice,
+    section_width,
+    titled_card,
+)
 
 if TYPE_CHECKING:
     from dash import Dash
@@ -18,7 +24,7 @@ if TYPE_CHECKING:
 
     from tolteca_simu.toltec.planning import ToltecPlanner
 
-__all__ = ["ToltecPanel"]
+__all__ = ["ToltecPanel", "band_label"]
 
 # v1 obs_planner toltec.py: the notice of shared risks and the polarimetry notes.
 _README = [
@@ -51,15 +57,37 @@ _POLARIMETRY_NOTES = [
     ),
 ]
 _PLANCK_XIX_URL = "https://arxiv.org/pdf/1405.0871.pdf"
-_LABELS = ["Stokes Params", "TolTEC band", "Coverage Unit"]
+_LABELS = ["TolTEC band", "Coverage Unit"]
+
+
+def band_label(array_name: ToltecArrayName) -> str:
+    """Return the label of a TolTEC band: its center wavelength, as in v1.
+
+    Parameters
+    ----------
+    array_name : {"a1100", "a1400", "a2000"}
+        The array.
+
+    Returns
+    -------
+    str
+        The center wavelength with one decimal.
+
+    Examples
+    --------
+    >>> band_label("a2000")
+    '2.0 mm'
+    """
+    wl_center = TOLTEC_ARRAYS[array_name].wl_center
+    return f"{wl_center.value:.1f} {wl_center.unit}"
 
 
 def _add_notes(
     notes: LazyComponent, title: str, paragraphs: list[str]
 ) -> LazyComponent:
-    notes.child[dmc.Text](title, size="xs", fw=700)
+    notes.child[dmc.Text](title, size=CONTROL_SIZE, fw=700)
     for text in paragraphs:
-        notes.child[dmc.Text](text, size="xs")
+        notes.child[dmc.Text](text, size=CONTROL_SIZE)
     return notes
 
 
@@ -78,27 +106,26 @@ class ToltecPanel(Template):
 
     def __init__(self, planner: ToltecPlanner) -> None:
         super().__init__()
-        card = self.child[dmc.Card](withBorder=True, padding="sm")
-        stack = card.child[dmc.Stack](gap="xs")
-        stack.child[dmc.Title]("Instrument: TolTEC", order=5)
+        _, stack = titled_card(self, "Instrument: TolTEC")
         readme_target, readme_notes = hover_card(stack)
         _add_notes(readme_notes, "WARNING", _README)
         readme_target.child[dmc.Button](
             "README Before Use: Notice of Shared Risks",
             color="red",
             variant="outline",
-            size="xs",
+            size=CONTROL_SIZE,
             fullWidth=True,
         )
         n_dets = len(planner.apt)
         n_designed = sum(planner.n_dets_designed.values())
-        info = stack.child[dmc.Stack](gap=0, pl=8)
+        info = stack.child[dmc.Stack](gap=0)
         info.child[dmc.Text](
-            f"APT version: {planner.apt.meta.get('version', 'designed')}", size="xs"
+            f"APT version: {planner.apt.meta.get('version', 'designed')}",
+            size=CONTROL_SIZE,
         )
         info.child[dmc.Text](
             f"Enabled detectors: {n_dets} / {n_designed} ({n_dets / n_designed:.0%})",
-            size="xs",
+            size=CONTROL_SIZE,
         )
         width = section_width(_LABELS)
         stokes_target, stokes_notes = hover_card(stack)
@@ -110,9 +137,9 @@ class ToltecPanel(Template):
                 dmc.Anchor("link", href=_PLANCK_XIX_URL, target="_blank"),
                 ")",
             ],
-            size="xs",
+            size=CONTROL_SIZE,
         )
-        self._stokes, _ = labeled_choice(
+        self._stokes = labeled_choice(
             stokes_target,
             "Stokes Params",
             [
@@ -120,19 +147,16 @@ class ToltecPanel(Template):
                 {"label": "Polarized Emission (Q/U)", "value": "QU"},
             ],
             "I",
-            label_width=width,
+            below=True,
         )
-        self._band, _ = labeled_choice(
+        self._band = labeled_choice(
             stack,
             "TolTEC band",
-            [
-                {"label": f"{a.wl_center:g}", "value": name}
-                for name, a in TOLTEC_ARRAYS.items()
-            ],
+            [{"label": band_label(name), "value": name} for name in TOLTEC_ARRAYS],
             "a1100",
             label_width=width,
         )
-        self.coverage_unit, _ = labeled_choice(
+        self.coverage_unit = labeled_choice(
             stack,
             "Coverage Unit",
             [

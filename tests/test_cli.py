@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 from pathlib import Path
@@ -5,6 +6,7 @@ from pathlib import Path
 import astropy.units as u
 import pytest
 from astropy.io import fits
+from dash import no_update
 from dash.exceptions import PreventUpdate
 from pydantic import ValidationError
 from tollan.config import RuntimeContext
@@ -93,11 +95,11 @@ def test_planner_defaults(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("viewer", "scripts", "n_callbacks"),
     [
-        (None, [], 26),
+        (None, [], 30),
         (
             {"kind": "firefly", "url": FIREFLY_URL},
             [f"{FIREFLY_URL}firefly_loader.js"],
-            26,
+            30,
         ),
     ],
 )
@@ -119,46 +121,124 @@ def test_create_app_uses_title_and_viewer(
         and all(i["property"] == "n_clicks" for i in callback["inputs"])
     ]
     assert len(plan) == 1
-    assert len(plan[0]["state"]) == 3
-    # The Execute buttons show that results are being computed. Dash keeps the
-    # running outputs only in its callback list.
+    # As v1: the parts of the description, the loaded file and the coverage
+    # unit, all as states.
+    assert len(plan[0]["state"]) == 6
+    # While results are computed, the two Execute buttons show it, and the
+    # sky view, trajectory plots, coverage view and sensitivity tables they
+    # will replace are covered. Dash keeps the running outputs only in its
+    # callback list.
     callbacks = dash_app._callback_list  # noqa: SLF001
     (running,) = (c["running"] for c in callbacks if c.get("running"))
-    assert sorted(running["running"].values()) == [True, True]
-    assert all(key.endswith(".loading") for key in running["running"])
-    assert sorted(running["runningOff"].values()) == [False, False]
+    props = sorted(key.rsplit(".", 1)[1] for key in running["running"])
+    assert props == ["loading"] * 2 + ["visible"] * 4
+    assert set(running["running"].values()) == {True}
+    assert set(running["runningOff"].values()) == {False}
 
 
-def test_presets_follow_the_instrument_settings(cal_data_path: Path) -> None:
+@pytest.fixture
+def planner_page(cal_data_path: Path) -> ObsPlanner:
     runtime = RuntimeContext(
         {"simu": {"obs_planner": {"cal_data_path": cal_data_path}}}
     )
-    # The callback body is the panel's private method.
     simu = Simu(runtime)
-    mapping = ObsPlanner(simu.config.obs_planner, simu.make_toltec_planner()).mapping
+    return ObsPlanner(simu.config.obs_planner, simu.make_toltec_planner())
+
+
+def test_presets_follow_the_instrument_settings(planner_page: ObsPlanner) -> None:
+    # The callback body is the panel's private method.
+    mapping = planner_page.mapping
     apply_conditions = mapping._apply_conditions  # noqa: SLF001
+    initial = mapping.preset_select.props["data"]
+    ref_frames = [
+        {"label": "AZ/Alt", "value": "altaz", "disabled": False},
+        {"label": "RA/Dec", "value": "icrs", "disabled": False},
+    ]
     # Before the page publishes the instrument settings, nothing changes.
     with pytest.raises(PreventUpdate):
-        apply_conditions(None, "toltec_blank_field_raster", "altaz")
-    # Polarimetry selects its own preset and maps in RA/Dec only.
-    data, key, altaz_disabled, ref_frame = apply_conditions(
-        {"name": "toltec", "polarized": True, "array_name": "a1100"},
-        "toltec_blank_field_raster",
-        "altaz",
+        apply_conditions(None, initial, ref_frames)
+    total = {"name": "toltec", "polarized": False, "array_name": "a1100"}
+    polarized = total | {"polarized": True}
+    # As v1: options that do not change are left alone, so a band change
+    # keeps the chosen preset and frame.
+    assert apply_conditions(total, initial, ref_frames) == (no_update,) * 4
+    # Polarimetry enables its own preset, clears the choice, and maps in
+    # RA/Dec only.
+    data, key, frames, frame = apply_conditions(polarized, initial, ref_frames)
+    assert key is None
+    assert [d["value"] for d in data if not d["disabled"]] == [
+        "toltec_polarimetry_raster"
+    ]
+    assert [f["value"] for f in frames if not f["disabled"]] == ["icrs"]
+    assert frame == "icrs"
+    # Back to total intensity, v1 clears the choice again and maps in Az/Alt.
+    data, key, frames, frame = apply_conditions(total, data, frames)
+    assert (data, key, frames, frame) == (initial, None, ref_frames, "altaz")
+
+
+def test_preset_parameters_make_the_mapping(planner_page: ObsPlanner) -> None:
+    mapping = planner_page.mapping
+    make_form = mapping._make_form  # noqa: SLF001
+    make_preset_data = mapping._make_preset_data  # noqa: SLF001
+    key = "toltec_blank_field_raster"
+    # No preset is chosen at first: no parameters, invalid as in v1.
+    assert make_form("form", None) is None
+    assert make_preset_data(None, [], []) == (
+        None,
+        "Invalid mapping settings.",
+        None,
+        {},
     )
-    assert key == "toltec_polarimetry_raster"
-    assert [d["value"] for d in data if not d["disabled"]] == [key]
-    assert (altaz_disabled, ref_frame) == (True, "icrs")
-    _, key, altaz_disabled, ref_frame = apply_conditions(
-        {"name": "toltec", "polarized": False, "array_name": "a1100"},
-        "toltec_blank_field_raster",
-        "altaz",
+    # A newly chosen preset waits for its own parameter inputs.
+    with pytest.raises(PreventUpdate):
+        make_preset_data(key, [1.0], [{"preset": "other", "param": "length"}])
+    inputs = [getattr(item, "children", item) for item in make_form("form", key)]
+    ids = [i.id for i in inputs]
+    values = [i.value for i in inputs]
+    data, error, message, mod = make_preset_data(key, values, ids)
+    assert error is None
+    assert mod == {"valid": True}
+    assert message.startswith("Time to finish the pattern:")
+    assert data["mapping"]["type"] == "raster"
+    # A missing value makes the mapping invalid.
+    data, error, _, _ = make_preset_data(key, [None, *values[1:]], ids)
+    assert (data, error) == (None, "Invalid mapping settings.")
+
+
+def test_verify_reports_the_loaded_file(
+    planner_page: ObsPlanner, tmp_path: Path, cal_data_path: Path
+) -> None:
+    observation = tmp_path / "observation.yaml"
+    observation.write_text(OBSERVATION_YAML)
+    output = tmp_path / "out"
+    result = _plan(
+        tmp_path, cal_data_path, "--output_path", str(output), "--", str(observation)
     )
-    assert (key, altaz_disabled, ref_frame) == (
-        "toltec_blank_field_raster",
-        False,
-        "altaz",
+    assert result.exit_code == 0, result.output
+    text = (output / PLAN_FILES[1]).read_text()
+    contents = "data:text/plain;base64," + base64.b64encode(text.encode()).decode()
+    load = planner_page.verify._load  # noqa: SLF001
+    loaded, report = load(contents, "results.ecsv", 1794600000)
+    description = ObservationDescription.model_validate(loaded["description"])
+    assert description.target_name == "M82"
+    # As v1, Execute uses the coverage unit the file records.
+    assert loaded["coverage_unit"] == "depth"
+    # As v1: the fields of the file, without alerts for a file made with the
+    # same APT.
+    (details,) = report
+    assert details.children.startswith("ECSV_filename: results.ecsv\n")
+    assert "depth_rms_coadd_actual:\n    a1100    : " in details.children
+    other_apt = text.replace(
+        planner_page.verify._apt_path,  # noqa: SLF001
+        "toltec/apt/other.ecsv",
     )
+    contents = "data:text/plain;base64," + base64.b64encode(other_apt.encode()).decode()
+    loaded, (alert, _) = load(contents, "results.ecsv", None)
+    assert loaded is not None
+    assert alert.children.startswith("Mismatch APT version: toltec/apt/other.ecsv")
+    loaded, (alert,) = load("data:text/plain;base64,AAAA", "x.ecsv", None)
+    assert loaded is None
+    assert alert.children == "Unable to parse the uploaded file."
 
 
 # The description of the v1-compared case of test_toltec.py, as a user writes
@@ -224,25 +304,43 @@ def test_plan_writes_the_planner_files(tmp_path: Path, cal_data_path: Path) -> N
 def test_plan_replans_a_results_file(tmp_path: Path, cal_data_path: Path) -> None:
     observation = tmp_path / "observation.yaml"
     observation.write_text(OBSERVATION_YAML)
-    first, second = tmp_path / "first", tmp_path / "second"
-    _plan(tmp_path, cal_data_path, "--output_path", str(first), "--", str(observation))
+    first, second, third = (tmp_path / name for name in ("first", "second", "third"))
+    _plan(
+        tmp_path,
+        cal_data_path,
+        "--output_path",
+        str(first),
+        "--coverage_unit",
+        "time",
+        "--",
+        str(observation),
+    )
     results = first / PLAN_FILES[1]
+    # As the Verify tab: the file's description in the file's coverage unit.
+    result = _plan(
+        tmp_path, cal_data_path, "--output_path", str(second), "--", str(results)
+    )
+    assert result.exit_code == 0, result.output
+    description, _ = read_results_metadata(results.read_text())
+    replanned, meta = read_results_metadata((second / PLAN_FILES[1]).read_text())
+    assert replanned == description
+    assert meta["coverage_unit"] == "time"
+    hdulist = fits.open(io.BytesIO((second / PLAN_FILES[2]).read_bytes()))
+    assert hdulist["cov_raw"].header["BUNIT"] == "s / pix"
+    # An explicit unit takes precedence.
     result = _plan(
         tmp_path,
         cal_data_path,
         "--output_path",
-        str(second),
+        str(third),
         "--coverage_unit",
-        "time",
+        "depth",
         "--",
         str(results),
     )
     assert result.exit_code == 0, result.output
-    description, _ = read_results_metadata(results.read_text())
-    replanned, _ = read_results_metadata((second / PLAN_FILES[1]).read_text())
-    assert replanned == description
-    hdulist = fits.open(io.BytesIO((second / PLAN_FILES[2]).read_bytes()))
-    assert hdulist["cov_raw"].header["BUNIT"] == "s / pix"
+    hdulist = fits.open(io.BytesIO((third / PLAN_FILES[2]).read_bytes()))
+    assert hdulist["cov_raw"].header["BUNIT"] == "mJy / beam"
 
 
 def test_plan_keeps_existing_files(tmp_path: Path, cal_data_path: Path) -> None:

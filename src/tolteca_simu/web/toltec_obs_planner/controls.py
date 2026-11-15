@@ -1,10 +1,11 @@
-"""Form controls with the v1 planner's visual cues, built from Mantine inputs.
+"""Form controls of the planner: Mantine components with v1's cues.
 
-As in v1, an input shows its name as a grey prefix and its unit as a grey
-suffix, with the value in the middle. A checked input shows its feedback below
-it: green, with a green border and a check mark, when valid; Mantine's error
-style when invalid. Choices are groups of pills with a grey label. The styles are
-in ``assets/planner.css``.
+As in v1, a card has a title band; an input shows its name before the value
+and its unit after it, as segments attached to the input; a checked input
+shows a green border, a check mark and a green message when valid, and a red
+border, an alert mark and a red message when invalid; a choice of one option
+fills the chosen option. ``assets/planner.css`` styles the segments and the
+valid and invalid marks for the classes and modifiers set here.
 """
 
 from __future__ import annotations
@@ -16,30 +17,38 @@ import dash_mantine_components as dmc
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from dash_component_template import LazyComponent
+    from dash.development.base_component import Component
+    from dash_component_template import LazyComponent, Template
 
 __all__ = [
-    "INPUT_SIZE",
+    "CONTROL_SIZE",
     "feedback",
     "field",
+    "field_props",
     "hover_card",
     "labeled_choice",
     "section_width",
+    "titled_card",
+    "tooltip",
     "with_tooltip",
 ]
 
-INPUT_SIZE = "xs"
-"""Size of the planner's inputs: compact, as v1's small form controls."""
+CONTROL_SIZE = "sm"
+"""Size of the planner's inputs and buttons: 14px text, as v1's small form
+controls."""
 
-# Width of a character and the padding of a section label at INPUT_SIZE.
-_CHAR_WIDTH = 6.5
-_SECTION_PADDING = 24
+# Width of a character and the padding of a name or unit at CONTROL_SIZE.
+_CHAR_WIDTH = 7.4
+_SECTION_PADDING = 22
+# Class of the name and unit segments (assets/planner.css).
+_ADDON_CLASS = "planner-addon"
 
 
 def section_width(labels: Iterable[str]) -> int:
-    """Return the section width, in pixels, that fits the longest label.
+    """Return the width, in pixels, that fits each label.
 
-    Inputs of one card share it, so that their values line up.
+    An input's name or unit fits its own label. The labels of the choices of
+    one card share one width, so that their options line up.
 
     Parameters
     ----------
@@ -54,21 +63,88 @@ def section_width(labels: Iterable[str]) -> int:
     return int(_SECTION_PADDING + _CHAR_WIDTH * max(len(text) for text in labels))
 
 
+def titled_card(
+    parent: Template | LazyComponent, title: str
+) -> tuple[LazyComponent, LazyComponent]:
+    """Add a bordered card with a title band, as v1's card header.
+
+    Parameters
+    ----------
+    parent : dash_component_template.Template or dash_component_template.LazyComponent
+        Where to add the card.
+    title : str
+        Title shown in the band.
+
+    Returns
+    -------
+    header : dash_component_template.LazyComponent
+        A `dash_mantine_components.Group` in the title band, holding the
+        title.
+    body : dash_component_template.LazyComponent
+        A `dash_mantine_components.Stack` below the title, for the content.
+    """
+    card = parent.child[dmc.Card](withBorder=True, padding="sm")
+    section = card.child[dmc.CardSection](
+        withBorder=True,
+        inheritPadding=True,
+        py="xs",
+        bg="var(--mantine-color-default-hover)",
+    )
+    header = section.child[dmc.Group](gap="xs")
+    header.child[dmc.Text](title, fw=500)
+    body = card.child[dmc.Stack](gap="xs", pt="sm")
+    return header, body
+
+
 def _section(text: str) -> dmc.Text:
-    return dmc.Text(text, size=INPUT_SIZE, c="dimmed", style={"whiteSpace": "nowrap"})
+    return dmc.Text(text, size=CONTROL_SIZE)
 
 
-def field(  # noqa: PLR0913
+def field_props(
+    label: str | None = None, *, unit: str | None = None, checked: bool = False
+) -> dict[str, Any]:
+    """Return the properties of an input with a name, a unit and feedback.
+
+    Parameters
+    ----------
+    label : str, optional
+        Name shown before the value.
+    unit : str, optional
+        Unit shown after the value.
+    checked : bool
+        Whether the input shows feedback from a check below it: its callback
+        sets ``error``, ``description`` and ``mod`` from `feedback`.
+
+    Returns
+    -------
+    dict
+        Properties for a Mantine input, such as
+        `dash_mantine_components.NumberInput`.
+    """
+    props: dict[str, Any] = {"size": CONTROL_SIZE}
+    if label is not None:
+        props["leftSection"] = _section(label)
+        props["leftSectionWidth"] = section_width([label])
+    if unit is not None:
+        props["rightSection"] = _section(unit)
+        props["rightSectionWidth"] = section_width([unit])
+    if label is not None or unit is not None:
+        props["classNames"] = {"section": _ADDON_CLASS}
+    if checked:
+        props["inputWrapperOrder"] = ["label", "input", "description", "error"]
+    return props
+
+
+def field(
     parent: LazyComponent,
     component: type,
     label: str | None = None,
     *,
-    label_width: int | None = None,
     unit: str | None = None,
     checked: bool = False,
     **kwargs: object,
 ) -> LazyComponent:
-    """Add an input with a prefix name and a suffix unit.
+    """Add an input with its name before the value and its unit after it.
 
     Parameters
     ----------
@@ -77,15 +153,12 @@ def field(  # noqa: PLR0913
     component : type
         The Mantine input class, such as `dash_mantine_components.TextInput`.
     label : str, optional
-        Name shown in grey before the value.
-    label_width : int, optional
-        Width of the name, from `section_width`; defaults to fit ``label``.
+        Name shown before the value.
     unit : str, optional
-        Unit shown in grey after the value.
+        Unit shown after the value.
     checked : bool
-        Whether the input shows feedback from a check: its callback sets
-        ``error``, ``description`` and ``mod`` from `feedback`. A checked
-        input without a unit shows the check mark of a valid value.
+        Whether the input shows feedback from a check below it, as for
+        `field_props`.
     **kwargs
         Other properties of the input.
 
@@ -94,29 +167,11 @@ def field(  # noqa: PLR0913
     dash_component_template.LazyComponent
         The input.
     """
-    props: dict[str, Any] = {"size": INPUT_SIZE}
-    if label is not None:
-        props["leftSection"] = _section(label)
-        props["leftSectionWidth"] = label_width or section_width([label])
-        # Names of one card line up on the left, as v1's prefixes.
-        props["leftSectionProps"] = {
-            "style": {"justifyContent": "flex-start", "paddingInlineStart": 8}
-        }
-    if unit is not None:
-        props["rightSection"] = _section(unit)
-        props["rightSectionWidth"] = section_width([unit])
-    if checked:
-        props["className"] = "toltec-field"
-        props["inputWrapperOrder"] = ["label", "input", "description", "error"]
-        props["classNames"] = {"description": "toltec-feedback"}
-        if unit is None:
-            props["rightSection"] = dmc.Text(
-                "✓", size=INPUT_SIZE, fw=700, className="toltec-check"
-            )
+    props = field_props(label, unit=unit, checked=checked)
     return parent.child[component](**(props | kwargs))
 
 
-def feedback(message: str | None, *, valid: bool) -> tuple[Any, str | None, dict]:
+def feedback(message: str | None, *, valid: bool) -> tuple[Any, Any, dict]:
     """Return the ``error``, ``description`` and ``mod`` of a checked input.
 
     Parameters
@@ -129,65 +184,72 @@ def feedback(message: str | None, *, valid: bool) -> tuple[Any, str | None, dict
     Returns
     -------
     tuple
-        Values for the input's ``error``, ``description`` and ``mod``.
+        Values for the input's ``error``, ``description`` and ``mod``. A valid
+        input is marked ``data-valid``, which shows its check mark and green
+        border and message; an invalid one has Mantine's error state, also
+        without a message.
     """
     if valid:
         return None, message or None, {"valid": True}
-    # An empty message still marks the input invalid.
     return message or True, None, {}
 
 
-def labeled_choice(
+def labeled_choice(  # noqa: PLR0913
     parent: LazyComponent,
     label: str,
-    options: list[dict[str, str]],
+    options: list[dict[str, Any]],
     value: str,
     *,
     label_width: int | None = None,
-) -> tuple[LazyComponent, dict[str, LazyComponent]]:
-    """Add a group of pills, one of which is chosen, with a grey label before it.
+    below: bool = False,
+) -> LazyComponent:
+    """Add a choice of one option, with its label before it.
 
-    The pills wrap onto more lines when the row is too narrow.
+    As v1, the chosen option is filled and a click changes it at once.
 
     Parameters
     ----------
     parent : dash_component_template.LazyComponent
-        Where to add the group.
+        Where to add the choice.
     label : str
-        Name shown in grey before the choices.
+        Name shown before the options.
     options : list of dict
-        The ``label`` and ``value`` of each choice.
+        The ``label`` and ``value`` of each option, and ``disabled`` for an
+        option that cannot be chosen.
     value : str
         The value chosen at first.
     label_width : int, optional
-        Width of the name, as for the inputs of the same card.
+        Width of the name, from `section_width`, as for the other choices of
+        the same card.
+    below : bool
+        Whether the options go on their own line under the label, filling it,
+        for options too long to follow the label, as v1 wraps them.
 
     Returns
     -------
-    group : dash_component_template.LazyComponent
-        The `dash_mantine_components.ChipGroup`, whose ``value`` is the choice.
-    chips : dict
-        The `dash_mantine_components.Chip` of each value.
+    dash_component_template.LazyComponent
+        The `dash_mantine_components.SegmentedControl`, whose ``value`` is
+        the choice and whose ``data`` holds the options.
     """
-    row = parent.child[dmc.Group](gap="xs", wrap="nowrap", align="flex-start")
-    row.child[dmc.Text](
-        label,
-        size=INPUT_SIZE,
-        c="dimmed",
-        w=label_width,
-        pl=8,
-        pt=4,
-        style={"flexShrink": 0},
+    row = (
+        parent.child[dmc.Stack](gap=4)
+        if below
+        else parent.child[dmc.Group](gap="xs", wrap="nowrap")
     )
-    group = row.child[dmc.ChipGroup](value=value, multiple=False, deselectable=False)
-    pills = group.child[dmc.Group](gap=4, flex=1)
-    chips = {
-        option["value"]: pills.child[dmc.Chip](
-            option["label"], value=option["value"], size=INPUT_SIZE
-        )
-        for option in options
-    }
-    return group, chips
+    row.child[dmc.Text](
+        f"{label}:",
+        size=CONTROL_SIZE,
+        w=None if below else label_width,
+        flex="none",
+    )
+    return row.child[dmc.SegmentedControl](
+        data=options,
+        value=value,
+        size=CONTROL_SIZE,
+        color="blue",
+        transitionDuration=0,
+        fullWidth=below,
+    )
 
 
 def hover_card(parent: LazyComponent) -> tuple[LazyComponent, LazyComponent]:
@@ -220,6 +282,17 @@ def hover_card(parent: LazyComponent) -> tuple[LazyComponent, LazyComponent]:
     return target, notes
 
 
+def _tooltip_props(text: str) -> dict[str, Any]:
+    return {
+        "label": " ".join(text.split()),
+        "multiline": True,
+        "w": 320,
+        "withArrow": True,
+        "position": "top-start",
+        "boxWrapperProps": {"w": "100%"},
+    }
+
+
 def with_tooltip(parent: LazyComponent, text: str) -> LazyComponent:
     """Add a tooltip that explains the component added to it.
 
@@ -235,12 +308,22 @@ def with_tooltip(parent: LazyComponent, text: str) -> LazyComponent:
     dash_component_template.LazyComponent
         The tooltip, to add one component to.
     """
-    return parent.child[dmc.Tooltip](
-        label=" ".join(text.split()),
-        multiline=True,
-        w=320,
-        withArrow=True,
-        position="top-start",
-        openDelay=300,
-        boxWrapperProps={"w": "100%"},
-    )
+    return parent.child[dmc.Tooltip](**_tooltip_props(text))
+
+
+def tooltip(component: Component, text: str) -> dmc.Tooltip:
+    """Return a component with a tooltip that explains it.
+
+    Parameters
+    ----------
+    component : dash.development.base_component.Component
+        The component, made in a callback.
+    text : str
+        The explanation.
+
+    Returns
+    -------
+    dash_mantine_components.Tooltip
+        The tooltip around the component.
+    """
+    return dmc.Tooltip(component, **_tooltip_props(text))
